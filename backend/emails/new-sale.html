@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1.0"
+		/>
+		<title>New {{.Total}} Sale of {{.ProductName}}!</title>
+		<style>
+			body {
+				font-family: Arial, sans-serif;
+				line-height: 1.6;
+				color: #333;
+				max-width: 600px;
+				margin: 0 auto;
+				padding: 20px;
+				background-color: #ffffff;
+			}
+			h1 {
+				color: #333;
+			}
+			.order-details {
+				background-color: #f8f9fa !important;
+				border: 1px solid #e9ecef;
+				border-radius: 5px;
+				padding: 15px;
+				margin-top: 20px;
+			}
+			.order-details p {
+				margin: 5px 0;
+			}
+		</style>
+	</head>
+	<body bgcolor="#ffffff">
+		<table
+			width="100%"
+			cellpadding="0"
+			cellspacing="0"
+			border="0"
+		>
+			<tr>
+				<td align="center">
+					<table
+						width="600"
+						cellpadding="0"
+						cellspacing="0"
+						border="0"
+					>
+						<tr>
+							<td>
+								<h1>New Sale of {{.ProductName}}</h1>
+								<div
+									class="order-details"
+									style="background-color: #a1a7ac"
+								>
+									<p><strong>Order Number:</strong> {{.OrderNumber}}</p>
+									<p><strong>Customer Name:</strong> {{.UserName}}</p>
+									<p><strong>Customer Email:</strong> {{.CustomerEmail}}</p>
+									<p><strong>Product:</strong> {{.ProductName}}</p>
+									<p><strong>Subtotal:</strong> ${{.Subtotal}}</p>
+									<p><strong>Total:</strong> ${{.Total}}</p>
+								</div>
+								<p style="margin-top: 20px">
+									<a
+										href="https://app.lemonsqueezy.com/orders/{{.Identifier}}"
+										target="_blank"
+										rel="noopener noreferrer"
+										style="
+											color: #ffffff;
+											background-color: #5e69d1;
+											padding: 10px 20px;
+											text-decoration: none;
+											border-radius: 5px;
+										"
+										>View Order</a
+									>
+								</p>
+
+								<div
+									style="
+										margin-top: 20px;
+										margin-bottom: 20px;
+										padding-top: 10px;
+										padding-bottom: 10px;
+										border-top: 1px solid #e9ecef;
+									"
+								>
+									<p>
+										This email was intended for
+										<a
+											href="mailto:cole@colecaccamise.com"
+											rel="noopener noreferrer"
+											>cole@colecaccamise.com</a
+										>
+									</p>
+								</div>
+							</td>
+						</tr>
+					</table>
+				</td>
+			</tr>
+		</table>
+	</body>
+</html>
