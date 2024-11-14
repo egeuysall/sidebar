@@ -1,0 +1,20 @@
+.btn {
+	@apply w-fit px-6 py-3 rounded-md justify-center items-center inline-flex hover:opacity-90 active:opacity-95 focus:opacity-100 transition-all duration-200 bg-none font-medium;
+}
+
+.btn-brand {
+	@apply text-background hover:text-background bg-brand;
+}
+
+button[type='submit'].btn-brand,
+button[type='button'].btn-brand {
+	@apply bg-brand;
+}
+
+.btn-destructive {
+	@apply text-typography-strong bg-error;
+}
+
+.btn:disabled {
+	@apply opacity-50 cursor-not-allowed hover:opacity-50 active:opacity-50;
+}

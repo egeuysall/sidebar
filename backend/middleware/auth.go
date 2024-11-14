@@ -9,10 +9,10 @@ import (
 
 func VerifyAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
+		authToken, _ := r.Cookie("auth-token")
 		apiKey := r.Header.Get("X-API-KEY")
 
-		if authHeader == "" && apiKey == "" {
+		if authToken == nil && apiKey == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{
@@ -22,7 +22,8 @@ func VerifyAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		if !util.IsAuthenticated(authHeader, apiKey) {
+		authenticated, _, err := util.IsAuthenticated(authToken, apiKey)
+		if err != nil || !authenticated {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{

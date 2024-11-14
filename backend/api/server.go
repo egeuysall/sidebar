@@ -1,12 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/h2non/filetype"
 	"github.com/rs/cors"
 	"github.com/stripe/stripe-go/v80"
 	"golang.org/x/crypto/bcrypt"
@@ -50,13 +51,19 @@ func (s *Server) Start() error {
 	r.MethodNotAllowed(makeHttpHandleFunc(handleMethodNotAllowed))
 
 	r.Route("/auth", func(r chi.Router) {
+		r.Get("/identity", makeHttpHandleFunc(s.handleIdentity))
+		r.Post("/refresh", makeHttpHandleFunc(s.handleRefreshToken))
 		r.Post("/signup", makeHttpHandleFunc(s.handleSignup))
+		r.Post("/resend-email", makeHttpHandleFunc(s.handleResendEmail))
 		r.Post("/login", makeHttpHandleFunc(s.handleLogin))
+		r.Post("/logout", makeHttpHandleFunc(s.handleLogout))
 		r.Post("/confirm", makeHttpHandleFunc(s.handleConfirmEmailToken))
 	})
 
-	r.Route("/webhooks", func(r chi.Router) {
-		r.Post("/lemonsqueezy", makeHttpHandleFunc(s.handleLemonSqueezyWebhook))
+	r.Route("/tokens", func(r chi.Router) {
+		// r.Get("/", makeHttpHandleFunc(s.handleGetAllTokens))
+		// r.Post("/", makeHttpHandleFunc(s.handleCreateToken))
+		// r.Delete("/{id}", makeHttpHandleFunc(s.handleDeleteToken))
 	})
 
 	r.Group(func(r chi.Router) {
@@ -64,7 +71,11 @@ func (s *Server) Start() error {
 		r.Post("/users", makeHttpHandleFunc(s.handleCreateUser))
 		r.Get("/users", makeHttpHandleFunc(s.handleGetAllUsers))
 		r.Get("/users/{id}", makeHttpHandleFunc(s.handleGetUserByID))
+		r.Patch("/users/{id}", makeHttpHandleFunc(s.handleUpdateUserByID))
+		r.Patch("/users/{id}/email", makeHttpHandleFunc(s.handleUpdateUserEmailByID))
+		r.Post("/users/{id}/resend-email", makeHttpHandleFunc(s.handleResendUpdateEmail))
 		r.Delete("/users/{id}", makeHttpHandleFunc(s.handleDeleteUserByID))
+		r.Patch("/users/{id}/avatar", makeHttpHandleFunc(s.handleUploadAvatar))
 	})
 
 	stack := middleware.CreateStack(
@@ -104,96 +115,140 @@ func handleMethodNotAllowed(w http.ResponseWriter, req *http.Request) error {
 	return WriteJSON(w, http.StatusMethodNotAllowed, ApiError{Message: fmt.Sprintf("cannot %s %s", req.Method, req.URL.Path), Error: "method not allowed"})
 }
 
-func (s *Server) handleLemonSqueezyWebhook(w http.ResponseWriter, r *http.Request) error {
-	receivedSignature := r.Header.Get("X-Signature")
-
-	if receivedSignature == "" {
-		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "invalid signature", Error: "Unauthorized"})
-	} else {
-		fmt.Printf("received signature: %s\n", receivedSignature)
-	}
-
-	payload := new(models.LemonSqueezyPayload)
-	err := json.NewDecoder(r.Body).Decode(payload)
-
-	switch {
-	case err == io.EOF:
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: "empty body"})
-	case err != nil:
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: err.Error()})
-	}
-
-	event := payload.Meta.EventName
-
-	attributes := payload.Data.Attributes
-	order := &models.LemonSqueezyOrderAttributes{
-		OrderNumber:     attributes.OrderNumber,
-		UserName:        attributes.UserName,
-		UserEmail:       attributes.UserEmail,
-		SubtotalUSD:     attributes.SubtotalUSD,
-		TotalUSD:        attributes.TotalUSD,
-		Identifier:      attributes.Identifier,
-		FirstOrderItem: struct {
-			ID          int    `json:"id"`
-			ProductID   int    `json:"product_id"`
-			VariantID   int    `json:"variant_id"`
-			ProductName string `json:"product_name"`
-			VariantName string `json:"variant_name"`
-		}{
-			ID:          attributes.FirstOrderItem.ID,
-			ProductID:   attributes.FirstOrderItem.ProductID,
-			VariantID:   attributes.FirstOrderItem.VariantID,
-			ProductName: attributes.FirstOrderItem.ProductName,
-			VariantName: attributes.FirstOrderItem.VariantName,
-		},
-	}
-
-	switch event {
-	case "order_created":
-		orderNumber := strconv.Itoa(order.OrderNumber)
-		subtotal := fmt.Sprintf("%.2f", float64(order.SubtotalUSD)/100)
-		total := fmt.Sprintf("%.2f", float64(order.TotalUSD)/100)
-		email := order.UserEmail
-		product := order.FirstOrderItem.ProductName
-		identifier := order.Identifier
-		userName := order.UserName
-		emailTemplate, err := os.ReadFile("emails/new-sale.html")
-
+func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
+	// Read in auth token
+	authToken, err := r.Cookie("auth-token")
+	fmt.Println("auth token:", authToken)
+	fmt.Println("error:", err)
+	if err != nil {
+		// If no auth token, check for refresh token
+		refreshToken, err := r.Cookie("refresh-token")
 		if err != nil {
-			return WriteJSON(w, http.StatusInternalServerError, ApiError{Message: "failed to read email template", Error: err.Error()})
+			return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: "no tokens found"})
 		}
 
-		emailBody := string(emailTemplate)
-
-		emailBody = strings.Replace(emailBody, "{{.ProductName}}", product, 3)
-		emailBody = strings.Replace(emailBody, "{{.UserName}}", userName, 1)
-		emailBody = strings.Replace(emailBody, "{{.OrderNumber}}", orderNumber, 1)
-		emailBody = strings.Replace(emailBody, "{{.CustomerEmail}}", email, 1)
-		emailBody = strings.Replace(emailBody, "{{.Subtotal}}", subtotal, 1)
-		emailBody = strings.Replace(emailBody, "{{.Total}}", total, 2)
-		emailBody = strings.Replace(emailBody, "{{.Identifier}}", identifier, 1)
-
-		err = util.SendEmail("cole@colecaccamise.com", fmt.Sprintf("New $%s sale of %s!", total, product), emailBody)
-
-		if err != nil {
-			return WriteJSON(w, http.StatusInternalServerError, ApiError{Message: "failed to send email", Error: err.Error()})
+		// Parse and check if refresh token is valid
+		userId, tokenType, err := util.ParseJWT(refreshToken.Value)
+		if err != nil || tokenType != "refresh" {
+			return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: "invalid refresh token"})
 		}
 
-		return WriteJSON(w, http.StatusOK, map[string]any{"message": "webhook received and handled", "order": order})
-	default:
-		fmt.Println("unsupported event detected:", event)
-		return WriteJSON(w, http.StatusBadRequest, map[string]string{"message": "unsupported event"})
+		fmt.Println("user id:", userId)
+
+		// If valid, generate auth token and set cookie, then return user
+		user, err := s.store.GetUserByID(uuid.MustParse(userId))
+		if err != nil {
+			return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user not found", Error: err.Error()})
+		}
+
+		authToken, err := generateToken(user, "auth")
+		if err != nil {
+			return err
+		}
+
+		http.SetCookie(w, &http.Cookie{
+			Name: "auth-token",
+			Value: authToken,
+			Path: "/",
+			MaxAge: 60 * 15,
+			HttpOnly: true,
+		})
+
+		return WriteJSON(w, http.StatusOK, user)
 	}
+
+	// Parse auth token
+	userId, tokenType, err := util.ParseJWT(authToken.Value)
+	if err != nil || tokenType != "auth" || userId == "" {
+		// If invalid, check for refresh token
+		refreshToken, err := r.Cookie("refresh-token")
+		if err != nil {
+			return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: "invalid token"})
+		}
+
+		// Parse and check if refresh token is valid
+		userId, tokenType, err = util.ParseJWT(refreshToken.Value)
+		if err != nil || tokenType != "refresh" {
+			return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: "invalid token"})
+		}
+	}
+
+	// If valid, return user
+	user, err := s.store.GetUserByID(uuid.MustParse(userId))
+	if err != nil {
+		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user not found", Error: err.Error()})
+	}
+
+	token, err := generateToken(user, "auth")
+	if err != nil {
+		return err
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth-token",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   60 * 15,
+		HttpOnly: true,
+	})
+
+	return WriteJSON(w, http.StatusOK, user)
+}
+
+func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) error {
+	refreshToken, err := r.Cookie("refresh-token")
+	if err != nil {
+		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: err.Error()})
+	}
+
+	userId, authTokenType, err := util.ParseJWT(refreshToken.Value)
+	if err != nil {
+		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: err.Error()})
+	}
+
+	if authTokenType != "refresh" {
+		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: "unauthorized"})
+	}
+
+	user, err := s.store.GetUserByID(uuid.MustParse(userId))
+	if err != nil {
+		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: err.Error()})
+	}
+
+	authToken, err := generateToken(user, "auth")
+	if err != nil {
+		return err
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name: "auth-token",
+		Value: authToken,
+		Path: "/",
+		MaxAge: 60 * 15,
+		HttpOnly: true,
+	})
+
+	return WriteJSON(w, http.StatusOK, nil)
 }
 
 func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) error {
 	signupReq := new(models.SignupRequest)
+
 	if err := json.NewDecoder(r.Body).Decode(signupReq); err != nil {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: err.Error()})
+		errorMsg := "invalid request"
+		if err == io.EOF {
+			errorMsg = "request body is empty"
+		}
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: errorMsg})
 	}
 
 	if signupReq.Email == "" || signupReq.Password == "" {
 		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: "email and password are required"})
+	}
+
+	existingUser, _ := s.store.GetUserByEmail(signupReq.Email)
+	if existingUser != nil {
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "cannot signup", Error: "an account with this email already exists"})
 	}
 
 	eightOrMore, number, upper, special := util.ValidatePassword(signupReq.Password)
@@ -243,22 +298,75 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	fmt.Println("auth token:", authToken)
+	// generate email resend token
+	emailResendToken, err := generateToken(user, "email_resend")
+	if err != nil {
+		return err
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name: "email-resend-token",
+		Value: emailResendToken,
+		Path: "/",
+		MaxAge: 60 * 60 * 24,
+		HttpOnly: true,
+	})
 
 	confirmationUrl := fmt.Sprintf("%s/auth/confirm?token=%s", os.Getenv("APP_URL"), authToken)
 
 	fmt.Println("confirmation url:", confirmationUrl)
 	// send confirmation email
-	err = util.SendEmail(signupReq.Email, "Confirm your email", fmt.Sprintf("Click <a href=\"%s\">here</a> to confirm your email.", confirmationUrl))
+	err = util.SendEmail(signupReq.Email, "Confirm your email", fmt.Sprintf("Click here to confirm your email: %s", confirmationUrl))
 
 	if err != nil {
 		return err
 	}
 
 	// redirect to confirm-email page
-	redirectUrl := fmt.Sprintf("%s/", os.Getenv("APP_URL"))
+	redirectUrl := fmt.Sprintf("%s/auth/confirm-email?email=%s", os.Getenv("APP_URL"), signupReq.Email)
 
 	return WriteJSON(w, http.StatusOK, map[string]string{"redirect_url": redirectUrl})
+}
+
+func (s *Server) handleResendEmail(w http.ResponseWriter, r *http.Request) error {
+	authToken, err := r.Cookie("auth-token")
+	
+	if err != nil {
+		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: err.Error()})
+	}
+
+	userId, authTokenType, err := util.ParseJWT(authToken.Value)
+	if err != nil || authTokenType != "auth" {
+		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: err.Error()})
+	}
+
+	user, err := s.store.GetUserByID(uuid.MustParse(userId))
+	if err != nil {
+		fmt.Printf("Error getting user: %v\n", err)
+		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "invalid token", Error: err.Error()})
+	}
+
+	// verify users email isn't already confirmed
+	if user.EmailConfirmedAt != nil {
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "email already confirmed", Error: "email already confirmed"})
+	}
+
+	emailConfirmationToken, err := generateToken(user, "email_confirmation")
+	if err != nil {
+		fmt.Printf("Error generating token: %v\n", err)
+		return err
+	}
+
+	confirmationUrl := fmt.Sprintf("%s/auth/confirm?token=%s", os.Getenv("APP_URL"), emailConfirmationToken)
+
+	err = util.SendEmail(user.Email, "Confirm your email", fmt.Sprintf("Click here to confirm your email: %s", confirmationUrl))
+
+	if err != nil {
+		fmt.Printf("Error sending email: %v\n", err)
+		return err
+	}
+
+	return WriteJSON(w, http.StatusOK, nil)
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
@@ -275,10 +383,61 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 
 	passwordMatches := comparePasswords(user.HashedPassword, loginReq.Password)
 	if !passwordMatches {
-		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "invalid credentials", Error: "password does not match"})
+		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "invalid credentials", Error: "invalid email or password"})
 	}
 
-	return WriteJSON(w, http.StatusOK, map[string]any{"message": "login successful"})
+	authToken, err := generateToken(user, "auth")
+	if err != nil {
+		return err
+	}
+
+	refreshToken, err := generateToken(user, "refresh")
+	if err != nil {
+		return err
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name: "auth-token",
+		Value: authToken,
+		Path: "/",
+		MaxAge: 60 * 15,
+		HttpOnly: true,
+	})
+
+	http.SetCookie(w, &http.Cookie{
+		Name: "refresh-token",
+		Value: refreshToken,
+		Path: "/",
+		MaxAge: 60 * 60 * 24 * 90,
+		HttpOnly: true,
+	})
+
+	return WriteJSON(w, http.StatusOK, nil)
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) error {
+	http.SetCookie(w, &http.Cookie{
+		Name: "auth-token",
+		Value: "",
+		Path: "/",
+		Expires: time.Unix(0, 0),
+	})
+
+	http.SetCookie(w, &http.Cookie{
+		Name: "refresh-token",
+		Value: "",
+		Path: "/",
+		Expires: time.Unix(0, 0),
+	})
+
+	http.SetCookie(w, &http.Cookie{
+		Name: "email-resend-token",
+		Value: "",
+		Path: "/",
+		Expires: time.Unix(0, 0),
+	})
+
+	return WriteJSON(w, http.StatusOK, nil)
 }
 
 func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request) error {
@@ -319,7 +478,18 @@ func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request)
 		return err
 	}
 
-	user.EmailConfirmedAt = time.Now()
+	refreshToken, err := generateToken(user, "refresh")
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	user.EmailConfirmedAt = &now
+
+	if user.UpdatedEmail != "" {
+		user.Email = user.UpdatedEmail
+		user.UpdatedEmail = ""
+	}
 
 	if err := s.store.UpdateUser(user); err != nil {
 		return err
@@ -330,7 +500,24 @@ func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request)
 		Value: authToken,
 		Path: "/",
 		MaxAge: 60 * 15,
+		HttpOnly: true,
 	})
+
+	http.SetCookie(w, &http.Cookie{
+		Name: "refresh-token",
+		Value: refreshToken,
+		Path: "/",
+		MaxAge: 60 * 60 * 24 * 90,
+		HttpOnly: true,
+	})
+
+
+	cookies := w.Header()["Set-Cookie"]
+	if len(cookies) == 0 {
+		fmt.Println("Warning: No cookies were set in the response headers")
+	} else {
+		fmt.Println("Cookies set in response headers:", cookies)
+	}
 
 	return WriteJSON(w, http.StatusOK, map[string]any{"message": "email confirmed"})
 }
@@ -348,7 +535,7 @@ func comparePasswords(hashedPassword, password string) bool {
 }
 
 func generateToken(user *models.User, tokenType string) (string, error) {
-	if tokenType != "auth" && tokenType != "refresh" && tokenType != "reset_password" && tokenType != "forgot_password" && tokenType != "email_confirmation" {
+	if tokenType != "auth" && tokenType != "refresh" && tokenType != "reset_password" && tokenType != "forgot_password" && tokenType != "email_confirmation" && tokenType != "email_resend" {
 		return "", fmt.Errorf("invalid token type")
 	}
 
@@ -357,6 +544,9 @@ func generateToken(user *models.User, tokenType string) (string, error) {
 		"exp": func() int64 {
 			if tokenType == "refresh" {
 				return time.Now().Add(time.Hour * 24 * 90).Unix()
+			}
+			if tokenType == "email_resend" {
+				return time.Now().Add(time.Hour * 24).Unix()
 			}
 			return time.Now().Add(time.Minute * 15).Unix()
 		}(),
@@ -410,6 +600,80 @@ func (s *Server) handleGetUserByID(w http.ResponseWriter, r *http.Request) error
 	return WriteJSON(w, http.StatusOK, user)
 }
 
+func (s *Server) handleUpdateUserByID(w http.ResponseWriter, r *http.Request) error {
+	user, err := s.store.GetUserByID(uuid.MustParse(chi.URLParam(r, "id")))
+	if err != nil {
+		return WriteJSON(w, http.StatusNotFound, ApiError{Message: "user not found", Error: err.Error()})
+	}
+
+	updateUserReq := new(models.UpdateUserRequest)
+	if err := json.NewDecoder(r.Body).Decode(updateUserReq); err != nil {
+		return err
+	}
+
+	user.FirstName = updateUserReq.FirstName
+	user.LastName = updateUserReq.LastName
+
+	if err := s.store.UpdateUser(user); err != nil {
+		return err
+	}
+
+	return WriteJSON(w, http.StatusOK, user)
+}
+
+func (s *Server) handleUpdateUserEmailByID(w http.ResponseWriter, r *http.Request) error {
+	user, err := s.store.GetUserByID(uuid.MustParse(chi.URLParam(r, "id")))
+	if err != nil {
+		return WriteJSON(w, http.StatusNotFound, ApiError{Message: "user not found", Error: err.Error()})
+	}
+
+	updateUserEmailReq := new(models.UpdateUserEmailRequest)
+	if err := json.NewDecoder(r.Body).Decode(updateUserEmailReq); err != nil {
+		return err
+	}
+
+	if updateUserEmailReq.Email == user.Email {
+		fmt.Println("email is the same")
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "email is the same", Error: "email is the same"})
+	}
+
+	user.UpdatedEmail = updateUserEmailReq.Email
+	now := time.Now()
+	user.UpdatedEmailAt = &now
+
+	if err := s.store.UpdateUser(user); err != nil {
+		return err
+	}
+
+	// send email confirmation
+	emailConfirmationToken, err := generateToken(user, "email_confirmation")
+	if err != nil {
+		return err
+	}
+
+	confirmationUrl := fmt.Sprintf("%s/auth/confirm?token=%s", os.Getenv("APP_URL"), emailConfirmationToken)
+
+	err = util.SendEmail(user.UpdatedEmail, "Confirm your email", fmt.Sprintf("Please confirm your email by clicking <a href=\"%s\">here</a>", confirmationUrl))
+	if err != nil {
+		fmt.Printf("Error sending email: %v\n", err)
+		return err
+	}
+
+	fmt.Println("email confirmation url:", confirmationUrl)
+
+	return WriteJSON(w, http.StatusOK, map[string]any{"message": "email updated", "updated_email": user.UpdatedEmail, "email": user.Email})
+}
+
+func (s *Server) handleResendUpdateEmail(w http.ResponseWriter, r *http.Request) error {
+	// check that user has outstanding email update request
+
+	// get updated email
+
+	// send email
+
+	return WriteJSON(w, http.StatusOK, map[string]any{"message": "email sent"})
+}
+
 func (s *Server) handleDeleteUserByID(w http.ResponseWriter, r *http.Request) error {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
@@ -421,6 +685,58 @@ func (s *Server) handleDeleteUserByID(w http.ResponseWriter, r *http.Request) er
 	}
 
 	return WriteJSON(w, http.StatusNoContent, nil)
+}
+
+func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) error {
+	file, fileHeader, err := r.FormFile("avatar")
+
+	if err != nil {
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: err.Error()})
+	}
+
+	if file == nil {
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: "file is required"})
+	}
+
+	buf, err := io.ReadAll(file)
+	if err != nil {
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: err.Error()})
+	}
+
+	fileType, err := filetype.MatchReader(bytes.NewReader(buf))
+	if err != nil {
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: err.Error()})
+	}
+
+	if fileType.MIME.Value != "image/jpeg" && fileType.MIME.Value != "image/png" {
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: "file must be a jpeg or png"})
+	}
+
+	fmt.Println("file type:", fileType.MIME.Value)
+
+	if fileHeader.Size > 2000000 {
+		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "file too large", Error: "file too large"})
+	}
+
+	filename, _, err := util.UploadFileToS3(buf)
+	if err != nil {
+		return err
+	}
+
+	cloudfrontUrl := fmt.Sprintf("%s/%s", os.Getenv("CLOUDFRONT_URL"), filename)
+
+	user, err := s.store.GetUserByID(uuid.MustParse(chi.URLParam(r, "id")))
+	if err != nil {
+		return WriteJSON(w, http.StatusNotFound, ApiError{Message: "user not found", Error: err.Error()})
+	}
+
+	user.AvatarUrl = cloudfrontUrl
+
+	if err := s.store.UpdateUser(user); err != nil {
+		return err
+	}
+
+	return WriteJSON(w, http.StatusOK, map[string]any{"location": cloudfrontUrl, "file_type": fileType})
 }
 
 func WriteJSON(w http.ResponseWriter, status int, v any) error {
