@@ -1,11 +1,8 @@
 'use client';
 
 import Button from '@/components/ui/button';
-import Input from '@/components/ui/input';
-import axios from 'axios';
 import toast from '@/lib/toast';
 import Link from 'next/link';
-import { ApiError } from '@/types';
 import Divider from '@/components/ui/divider';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';

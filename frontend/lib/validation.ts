@@ -23,7 +23,7 @@ export function isValidYouTubeURL(url: string): boolean {
 
 		const videoId = parsedUrl.searchParams.get('v');
 		return !!videoId;
-	} catch (error) {
+	} catch {
 		return false;
 	}
 }

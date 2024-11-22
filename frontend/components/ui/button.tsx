@@ -3,7 +3,6 @@ import Link from 'next/link';
 
 export default function Button({
 	className,
-	color,
 	children,
 	type = 'button',
 	variant,
@@ -19,7 +18,7 @@ export default function Button({
 	variant?: string;
 	loading?: boolean;
 	disabled?: boolean;
-	handleClick?: () => any;
+	handleClick?: () => void;
 	href?: string;
 }) {
 	// const backgroundColor = color ? `bg-${color}` : undefined;

@@ -21,7 +21,7 @@ const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 export default function AccountSettingsPage() {
 	const [user, setUser] = useState<User | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
-	const [avatar, setAvatar] = useState<File | null>(null);
+	const [avatar, setAvatar] = useState<File | undefined>(undefined);
 
 	const [userValues, setUserValues] = useState<{
 		firstName?: { initial: string; current: string };
@@ -69,11 +69,11 @@ export default function AccountSettingsPage() {
 
 	return (
 		<>
-			<div>
+			{/* <div>
 				<span>Email initial: {userValues.email?.initial}</span>
 				<span>Email current: {userValues.email?.current}</span>
 				<span>Updated email: {userValues.updatedEmail}</span>
-			</div>
+			</div> */}
 			<SettingsBox
 				title='Your Name'
 				description='This will be your display name in the dashboard.'
@@ -136,7 +136,7 @@ export default function AccountSettingsPage() {
 					await updateUserEmail({
 						user,
 						email: userValues.email?.current || '',
-					}).then((res: any) => {
+					}).then((res) => {
 						console.log('client res', res);
 						setUserValues({
 							...userValues,
@@ -235,7 +235,7 @@ export default function AccountSettingsPage() {
 				<Input
 					type='file'
 					placeholder='Avatar'
-					handleChange={(e) => setAvatar(e.target.files?.[0])}
+					handleChange={(e) => setAvatar((e.target as HTMLInputElement).files?.[0])}
 				/>
 			</SettingsBox>
 		</>

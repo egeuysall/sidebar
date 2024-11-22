@@ -25,7 +25,7 @@ import (
 
 type ApiError struct {
 	Message string `json:"message"`
-	Error string `json:"error"`
+	Error   string `json:"error"`
 }
 
 type apiFunc func(http.ResponseWriter, *http.Request) error
@@ -38,7 +38,7 @@ type Server struct {
 func NewServer(listenAddr string, store storage.Storage) *Server {
 	return &Server{
 		listenAddr: listenAddr,
-		store: store,
+		store:      store,
 	}
 }
 
@@ -86,12 +86,12 @@ func (s *Server) Start() error {
 	fmt.Println("Server is running on port", s.listenAddr)
 
 	c := cors.New(cors.Options{
-		AllowedOrigins: []string{"http://localhost:3000", "http://localhost:8000", "https://colecaccamise.com"},
+		AllowedOrigins:   []string{"http://localhost:3000", "http://localhost:8000", "https://colecaccamise.com"},
 		AllowCredentials: true,
-		AllowedMethods: []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders: []string{"*"},
-		ExposedHeaders: []string{"Content-Type", "Location"},
-		AllowOriginFunc:  func(origin string) bool { 
+		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"*"},
+		ExposedHeaders:   []string{"Content-Type", "Location"},
+		AllowOriginFunc: func(origin string) bool {
 			if os.Getenv("ENVIRONMENT") == "development" {
 				return origin == "http://localhost:3000" || origin == "http://localhost:8000"
 			} else {
@@ -147,10 +147,10 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 		}
 
 		http.SetCookie(w, &http.Cookie{
-			Name: "auth-token",
-			Value: authToken,
-			Path: "/",
-			MaxAge: 60 * 15,
+			Name:     "auth-token",
+			Value:    authToken,
+			Path:     "/",
+			MaxAge:   60 * 15,
 			HttpOnly: true,
 		})
 
@@ -221,10 +221,10 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) erro
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name: "auth-token",
-		Value: authToken,
-		Path: "/",
-		MaxAge: 60 * 15,
+		Name:     "auth-token",
+		Value:    authToken,
+		Path:     "/",
+		MaxAge:   60 * 15,
 		HttpOnly: true,
 	})
 
@@ -305,10 +305,10 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name: "email-resend-token",
-		Value: emailResendToken,
-		Path: "/",
-		MaxAge: 60 * 60 * 24,
+		Name:     "email-resend-token",
+		Value:    emailResendToken,
+		Path:     "/",
+		MaxAge:   60 * 60 * 24,
 		HttpOnly: true,
 	})
 
@@ -330,7 +330,7 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) error {
 
 func (s *Server) handleResendEmail(w http.ResponseWriter, r *http.Request) error {
 	authToken, err := r.Cookie("auth-token")
-	
+
 	if err != nil {
 		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: err.Error()})
 	}
@@ -397,18 +397,18 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name: "auth-token",
-		Value: authToken,
-		Path: "/",
-		MaxAge: 60 * 15,
+		Name:     "auth-token",
+		Value:    authToken,
+		Path:     "/",
+		MaxAge:   60 * 15,
 		HttpOnly: true,
 	})
 
 	http.SetCookie(w, &http.Cookie{
-		Name: "refresh-token",
-		Value: refreshToken,
-		Path: "/",
-		MaxAge: 60 * 60 * 24 * 90,
+		Name:     "refresh-token",
+		Value:    refreshToken,
+		Path:     "/",
+		MaxAge:   60 * 60 * 24 * 90,
 		HttpOnly: true,
 	})
 
@@ -417,23 +417,23 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) error {
 	http.SetCookie(w, &http.Cookie{
-		Name: "auth-token",
-		Value: "",
-		Path: "/",
+		Name:    "auth-token",
+		Value:   "",
+		Path:    "/",
 		Expires: time.Unix(0, 0),
 	})
 
 	http.SetCookie(w, &http.Cookie{
-		Name: "refresh-token",
-		Value: "",
-		Path: "/",
+		Name:    "refresh-token",
+		Value:   "",
+		Path:    "/",
 		Expires: time.Unix(0, 0),
 	})
 
 	http.SetCookie(w, &http.Cookie{
-		Name: "email-resend-token",
-		Value: "",
-		Path: "/",
+		Name:    "email-resend-token",
+		Value:   "",
+		Path:    "/",
 		Expires: time.Unix(0, 0),
 	})
 
@@ -496,21 +496,20 @@ func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request)
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name: "auth-token",
-		Value: authToken,
-		Path: "/",
-		MaxAge: 60 * 15,
+		Name:     "auth-token",
+		Value:    authToken,
+		Path:     "/",
+		MaxAge:   60 * 15,
 		HttpOnly: true,
 	})
 
 	http.SetCookie(w, &http.Cookie{
-		Name: "refresh-token",
-		Value: refreshToken,
-		Path: "/",
-		MaxAge: 60 * 60 * 24 * 90,
+		Name:     "refresh-token",
+		Value:    refreshToken,
+		Path:     "/",
+		MaxAge:   60 * 60 * 24 * 90,
 		HttpOnly: true,
 	})
-
 
 	cookies := w.Header()["Set-Cookie"]
 	if len(cookies) == 0 {
@@ -718,25 +717,27 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) erro
 		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "file too large", Error: "file too large"})
 	}
 
-	filename, _, err := util.UploadFileToS3(buf)
-	if err != nil {
-		return err
-	}
+	// filename, _, err := util.UploadFileToS3(buf)
+	// if err != nil {
+	// 	return err
+	// }
 
-	cloudfrontUrl := fmt.Sprintf("%s/%s", os.Getenv("CLOUDFRONT_URL"), filename)
+	// cloudfrontUrl := fmt.Sprintf("%s/%s", os.Getenv("CLOUDFRONT_URL"), filename)
 
-	user, err := s.store.GetUserByID(uuid.MustParse(chi.URLParam(r, "id")))
-	if err != nil {
-		return WriteJSON(w, http.StatusNotFound, ApiError{Message: "user not found", Error: err.Error()})
-	}
+	// user, err := s.store.GetUserByID(uuid.MustParse(chi.URLParam(r, "id")))
+	// if err != nil {
+	// 	return WriteJSON(w, http.StatusNotFound, ApiError{Message: "user not found", Error: err.Error()})
+	// }
 
-	user.AvatarUrl = cloudfrontUrl
+	// user.AvatarUrl = cloudfrontUrl
 
-	if err := s.store.UpdateUser(user); err != nil {
-		return err
-	}
+	// if err := s.store.UpdateUser(user); err != nil {
+	// 	return err
+	// }
 
-	return WriteJSON(w, http.StatusOK, map[string]any{"location": cloudfrontUrl, "file_type": fileType})
+	// return WriteJSON(w, http.StatusOK, map[string]any{"location": cloudfrontUrl, "file_type": fileType})
+
+	return WriteJSON(w, http.StatusOK, map[string]any{"location": "", "file_type": fileType})
 }
 
 func WriteJSON(w http.ResponseWriter, status int, v any) error {

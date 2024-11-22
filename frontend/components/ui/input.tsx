@@ -1,7 +1,6 @@
 'use client';
 
-import Link from 'next/link';
-import React, { forwardRef, ForwardedRef } from 'react';
+import React, {forwardRef, ForwardedRef, ChangeEvent} from 'react';
 import Spinner from '@/components/ui/spinner';
 import {
 	Tooltip,
@@ -22,7 +21,7 @@ interface InputProps {
 	name?: string;
 	label?: string;
 	htmlFor?: string;
-	handleChange?: (e: any) => void;
+	handleChange?: (e: ChangeEvent<HTMLInputElement> | ChangeEvent<HTMLTextAreaElement>) => void;
 	link?: string;
 	linkText?: string;
 	autoFocus?: boolean;
@@ -51,8 +50,6 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
 		label,
 		htmlFor,
 		handleChange,
-		link,
-		linkText,
 		autoFocus = false,
 		placeholderStyle = 'placeholder-typography-weak',
 		loading,
@@ -61,7 +58,6 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
 		required,
 		disabled,
 		tooltip = 'false',
-		success,
 		hint,
 		accept,
 	},

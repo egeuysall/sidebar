@@ -107,6 +107,9 @@ export default function LoginPage() {
 				<p>
 					Don&apos;t have an account? <Link href='/auth/signup'>Sign up</Link>
 				</p>
+				<p>
+					<Link href='/auth/forgot-password'>Forgot password?</Link>
+				</p>
 			</form>
 		</div>
 	);

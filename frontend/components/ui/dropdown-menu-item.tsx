@@ -7,7 +7,7 @@ export default function DropdownMenuItem({
 	kbd,
 	handleClick,
 }: {
-	icon: any;
+	icon: undefined | null | React.ReactNode;
 	label: string;
 	href?: string;
 	kbd?: string;

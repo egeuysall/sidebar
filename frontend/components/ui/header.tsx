@@ -1,7 +1,5 @@
 import Link from 'next/link';
-import Dropdown from './dropdown';
-import { ExitIcon } from '@radix-ui/react-icons';
-import axios from 'axios';
+
 export default function Header({ children }: { children: React.ReactNode }) {
 	return (
 		<header className='w-full'>

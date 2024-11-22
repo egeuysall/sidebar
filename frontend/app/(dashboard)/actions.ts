@@ -27,7 +27,7 @@ export async function handleLogout() {
 		}
 
 		redirect('/auth/login');
-	} catch (error) {
+	} catch {
 		redirect('/auth/login');
 	}
 }

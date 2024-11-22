@@ -21,7 +21,7 @@ export async function handleResendEmail() {
 			}
 		);
 		return response.data;
-	} catch (error: any) {
+	} catch (error) {
 		throw error;
 	}
 }

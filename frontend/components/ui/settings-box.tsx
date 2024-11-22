@@ -16,7 +16,7 @@ function SettingsBox({
 	description?: string;
 	note?: string | JSX.Element;
 	disabled?: boolean;
-	onSettingSubmit: () => any;
+	onSettingSubmit: () => Promise<void>;
 	children?: React.ReactNode;
 	submitText?: string;
 }) {
@@ -42,7 +42,7 @@ function SettingsBox({
 					.then(() => {
 						setDisableSubmit(false);
 					})
-					.catch((err: any) => {
+					.catch((err) => {
 						console.error(err);
 						setDisableSubmit(false);
 					});
