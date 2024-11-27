@@ -6,3 +6,4 @@ db/
 bin/
 *.pem
 pkg/mod/cache/lock
+.vscode
