@@ -118,8 +118,7 @@ func handleMethodNotAllowed(w http.ResponseWriter, req *http.Request) error {
 func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 	// Read in auth token
 	authToken, err := r.Cookie("auth-token")
-	fmt.Println("auth token:", authToken)
-	fmt.Println("error:", err)
+
 	if err != nil {
 		// If no auth token, check for refresh token
 		refreshToken, err := r.Cookie("refresh-token")
@@ -133,13 +132,25 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 			return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: "invalid refresh token"})
 		}
 
-		fmt.Println("user id:", userId)
-
 		// If valid, generate auth token and set cookie, then return user
 		user, err := s.store.GetUserByID(uuid.MustParse(userId))
 		if err != nil {
-			return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user not found", Error: err.Error()})
+			http.SetCookie(w, &http.Cookie{
+				Name:    "auth-token",
+				Value:   "",
+				Path:    "/",
+				Expires: time.Unix(0, 0),
+			})
+			http.SetCookie(w, &http.Cookie{
+				Name:    "refresh-token",
+				Value:   "",
+				Path:    "/",
+				Expires: time.Unix(0, 0),
+			})
+			return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "user not found", Error: err.Error()})
 		}
+
+		userData := models.NewUserIdentityResponse(user)
 
 		authToken, err := generateToken(user, "auth")
 		if err != nil {
@@ -154,7 +165,7 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 			HttpOnly: true,
 		})
 
-		return WriteJSON(w, http.StatusOK, user)
+		return WriteJSON(w, http.StatusOK, userData)
 	}
 
 	// Parse auth token
@@ -174,12 +185,18 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// If valid, return user
-	user, err := s.store.GetUserByID(uuid.MustParse(userId))
+	userData, err := s.store.GetUserByID(uuid.MustParse(userId))
 	if err != nil {
+		http.SetCookie(w, &http.Cookie{
+			Name:    "auth-token",
+			Value:   "",
+			Path:    "/",
+			Expires: time.Unix(0, 0),
+		})
 		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user not found", Error: err.Error()})
 	}
 
-	token, err := generateToken(user, "auth")
+	token, err := generateToken(userData, "auth")
 	if err != nil {
 		return err
 	}
@@ -191,6 +208,8 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 		MaxAge:   60 * 15,
 		HttpOnly: true,
 	})
+
+	user := models.NewUserIdentityResponse(userData)
 
 	return WriteJSON(w, http.StatusOK, user)
 }

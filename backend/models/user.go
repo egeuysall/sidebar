@@ -21,25 +21,50 @@ type UpdateUserEmailRequest struct {
 }
 
 type User struct {
-	ID        uuid.UUID   `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
-	FirstName string      `gorm:"" json:"first_name"`
-	LastName  string      `gorm:"" json:"last_name"`
-	Email     string      `gorm:"unique;not null" json:"email"`
-	UpdatedEmail string    `gorm:"" json:"updated_email"`
-	CreatedAt time.Time   `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time   `gorm:"autoUpdateTime" json:"updated_at"`
-	HashedPassword string `gorm:"" json:"hashed_password"`
-	UpdatedEmailAt *time.Time `gorm:"default:null" json:"updated_email_at"`
+	ID                      uuid.UUID  `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
+	FirstName               string     `gorm:"" json:"first_name"`
+	LastName                string     `gorm:"" json:"last_name"`
+	Email                   string     `gorm:"unique;not null" json:"email"`
+	UpdatedEmail            string     `gorm:"" json:"updated_email"`
+	CreatedAt               time.Time  `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt               time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
+	HashedPassword          string     `gorm:"" json:"hashed_password"`
+	UpdatedEmailAt          *time.Time `gorm:"default:null" json:"updated_email_at"`
 	UpdatedEmailConfirmedAt *time.Time `gorm:"default:null" json:"updated_email_confirmed_at"`
-	EmailConfirmedAt *time.Time `gorm:"default:null" json:"email_confirmed_at"`
-	IsAdmin        bool   `gorm:"default:false" json:"is_admin"`
-	AvatarUrl      string `gorm:"default:null" json:"avatar_url"`
+	EmailConfirmedAt        *time.Time `gorm:"default:null" json:"email_confirmed_at"`
+	IsAdmin                 bool       `gorm:"default:false" json:"is_admin"`
+	AvatarUrl               string     `gorm:"default:null" json:"avatar_url"`
+}
+
+type UserIdentityResponse struct {
+	ID                      uuid.UUID  `json:"id"`
+	FirstName               string     `json:"first_name"`
+	LastName                string     `json:"last_name"`
+	Email                   string     `json:"email"`
+	EmailConfirmedAt        *time.Time `json:"email_confirmed_at"`
+	UpdatedEmail            string     `json:"updated_email"`
+	UpdatedEmailAt          *time.Time `json:"updated_email_at"`
+	UpdatedEmailConfirmedAt *time.Time `json:"updated_email_confirmed_at"`
+	IsAdmin                 bool       `json:"is_admin"`
+	AvatarUrl               string     `json:"avatar_url"`
 }
 
 func NewUser(req *CreateUserRequest) *User {
 	return &User{
 		Email:          req.Email,
 		HashedPassword: req.HashedPassword,
+	}
+}
+
+func NewUserIdentityResponse(u *User) *UserIdentityResponse {
+	return &UserIdentityResponse{
+		ID:               u.ID,
+		FirstName:        u.FirstName,
+		LastName:         u.LastName,
+		Email:            u.Email,
+		IsAdmin:          u.IsAdmin,
+		AvatarUrl:        u.AvatarUrl,
+		EmailConfirmedAt: u.EmailConfirmedAt,
 	}
 }
 
