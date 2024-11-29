@@ -90,8 +90,8 @@ body {
 		--typography-weak: hsla(214, 0%, 100%, 78%);
 		--hover: hsla(214, 0%, 100%, 6%);
 		--fill: hsla(214, 0%, 100%, 2%);
-		--fill-solid: hsl(214, 0%, 10%, 100%);
-		--fill-hover: hsla(214, 0%, 100%, 3%);
+		--fill-solid: hsla(214, 0%, 10%, 100%);
+		--fill-hover: hsla(0, 100%, 100%, 3%);
 		--stroke-strong: hsla(214, 0%, 100%, 60%);
 		--stroke-medium: hsla(214, 0%, 100%, 16%);
 		--stroke-weak: hsla(214, 0%, 100%, 8%);
