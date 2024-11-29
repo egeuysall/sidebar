@@ -7,6 +7,7 @@ import { ChevronDownIcon } from '@radix-ui/react-icons';
 export default function Dropdown({
 	children,
 	menuItems,
+	showIcon = true,
 }: {
 	children: React.ReactNode;
 	menuItems: Array<{
@@ -17,6 +18,7 @@ export default function Dropdown({
 		kbd?: string;
 		handleClick?: () => void;
 	}>;
+	showIcon?: boolean;
 }) {
 	return (
 		<div className='relative'>
@@ -25,12 +27,12 @@ export default function Dropdown({
 				className='relative inline-block text-left'
 			>
 				<MenuButton className='flex items-center gap-2 hover:text-typography-strong transition-effect'>
-					{children} <ChevronDownIcon className='w-4 h-4' />
+					{children} {showIcon && <ChevronDownIcon className='w-4 h-4' />}
 				</MenuButton>
 
 				<MenuItems
 					transition
-					className='absolute right-0 mt-2 w-56 origin-top-right rounded-lg border border-stroke-weak bg-fill-solid p-1 shadow-lg focus:outline-none group'
+					className='absolute right-0 mt-2 w-56 origin-top-right rounded-lg border border-stroke-weak bg-fill-solid p-1 shadow-lg focus:outline-none group z-50'
 				>
 					{menuItems.map((item) => (
 						<DropdownMenuItem
