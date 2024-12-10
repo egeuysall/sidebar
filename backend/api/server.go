@@ -78,7 +78,7 @@ func (s *Server) Start() error {
 
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.VerifyAuth)
-		r.Post("/verify-password", makeHttpHandleFunc(s.handleVerifyPassword))
+		r.Post("/auth/verify-password", makeHttpHandleFunc(s.handleVerifyPassword))
 	})
 
 	// TODO: secure these routes to admins only
