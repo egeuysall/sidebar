@@ -78,14 +78,34 @@ func (s *Server) Start() error {
 
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.VerifyAuth)
-		r.Post("/users", makeHttpHandleFunc(s.handleCreateUser))
-		r.Get("/users", makeHttpHandleFunc(s.handleGetAllUsers))
-		r.Get("/users/{id}", makeHttpHandleFunc(s.handleGetUserByID))
-		r.Patch("/users/{id}", makeHttpHandleFunc(s.handleUpdateUserByID))
-		r.Patch("/users/{id}/email", makeHttpHandleFunc(s.handleUpdateUserEmailByID))
-		r.Post("/users/{id}/resend-email", makeHttpHandleFunc(s.handleResendUpdateEmail))
-		r.Delete("/users/{id}", makeHttpHandleFunc(s.handleDeleteUserByID))
-		r.Patch("/users/{id}/avatar", makeHttpHandleFunc(s.handleUploadAvatar))
+		r.Post("/verify-password", makeHttpHandleFunc(s.handleVerifyPassword))
+	})
+
+	// TODO: secure these routes to admins only
+	//r.Group(func(r chi.Router) {
+	//	r.Use(middleware.VerifyAuth)
+	//	r.Route("/users", func(r chi.Router) {
+	//		r.Post("/", makeHttpHandleFunc(s.handleCreateUser))
+	//		r.Get("/", makeHttpHandleFunc(s.handleGetAllUsers))
+	//		r.Get("/{id}", makeHttpHandleFunc(s.handleGetUserByID))
+	//		r.Patch("/{id}", makeHttpHandleFunc(s.handleUpdateUserByID))
+	//		r.Patch("/{id}/email", makeHttpHandleFunc(s.handleUpdateUserEmailByID))
+	//		r.Post("/{id}/resend-email", makeHttpHandleFunc(s.handleResendUpdateEmailByID))
+	//		r.Delete("/{id}", makeHttpHandleFunc(s.handleDeleteUserByID))
+	//		r.Patch("/{id}/avatar", makeHttpHandleFunc(s.handleUploadAvatarByID))
+	//	})
+	//})
+
+	// user taking actions on their own account they're logged in to
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.VerifyAuth)
+		r.Route("/users", func(r chi.Router) {
+			r.Patch("/", makeHttpHandleFunc(s.handleUpdateUser))
+			r.Patch("/email", makeHttpHandleFunc(s.handleUpdateUserEmail))
+			r.Post("/resend-email", makeHttpHandleFunc(s.handleResendUpdateEmail))
+			r.Delete("/", makeHttpHandleFunc(s.handleDeleteUser))
+			r.Patch("/avatar", makeHttpHandleFunc(s.handleUploadAvatar))
+		})
 	})
 
 	stack := middleware.CreateStack(
@@ -426,6 +446,7 @@ func (s *Server) handleResendEmail(w http.ResponseWriter, r *http.Request) error
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
+	// TODO: check that user isnt already logged in
 	loginReq := new(models.LoginRequest)
 	if err := json.NewDecoder(r.Body).Decode(loginReq); err != nil {
 		return err
@@ -579,6 +600,10 @@ func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request)
 	return WriteJSON(w, http.StatusOK, map[string]any{"message": "email confirmed"})
 }
 
+func (s *Server) handleVerifyPassword(w http.ResponseWriter, r *http.Request) error {
+	return nil
+}
+
 func hashAndSaltPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -592,7 +617,7 @@ func comparePasswords(hashedPassword, password string) bool {
 }
 
 func generateToken(user *models.User, tokenType string) (string, error) {
-	if tokenType != "auth" && tokenType != "refresh" && tokenType != "reset_password" && tokenType != "forgot_password" && tokenType != "email_confirmation" && tokenType != "email_resend" {
+	if tokenType != "auth" && tokenType != "refresh" && tokenType != "reset_password" && tokenType != "forgot_password" && tokenType != "email_confirmation" && tokenType != "email_resend" && tokenType != "password_verification" {
 		return "", fmt.Errorf("invalid token type")
 	}
 
@@ -604,6 +629,9 @@ func generateToken(user *models.User, tokenType string) (string, error) {
 			}
 			if tokenType == "email_resend" {
 				return time.Now().Add(time.Hour * 24).Unix()
+			}
+			if tokenType == "password_verification" {
+				return time.Now().Add(time.Minute * 10).Unix()
 			}
 			return time.Now().Add(time.Minute * 15).Unix()
 		}(),
@@ -618,6 +646,56 @@ func generateToken(user *models.User, tokenType string) (string, error) {
 	}
 
 	return signedAuthToken, nil
+}
+
+func getUserIdentity(s *Server, r *http.Request) (user models.User, authType string, err error) {
+	if s == nil || r == nil {
+		return models.User{}, "", fmt.Errorf("both server and request not provided")
+	}
+
+	// check for auth token
+	authToken, e := r.Cookie("auth-token")
+	apiKey := r.Header.Get("X-API-KEY")
+
+	// no auth token or api key
+	if apiKey == "" && e != nil {
+		return models.User{}, "", e
+	}
+
+	// verify auth token
+	if authToken != nil {
+		userId, authTokenType, e := util.ParseJWT(authToken.Value)
+
+		// bad auth token, no api key
+		if e != nil && apiKey == "" {
+			return models.User{}, "", e
+		}
+
+		if userId != "" && authTokenType == "auth" {
+			user, err := s.store.GetUserByID(uuid.MustParse(userId))
+
+			// user doesn't exist, no api key
+			if err != nil && apiKey == "" {
+				return models.User{}, "", err
+			}
+
+			if user == nil && apiKey == "" {
+				return models.User{}, "", fmt.Errorf("invalid user")
+			}
+
+			// return user object
+			if user != nil {
+				return *user, "authToken", nil
+			}
+		}
+
+		// TODO: implement identity for api key
+		if apiKey != "" {
+			return models.User{}, "", fmt.Errorf("identity not implemented for api keys")
+		}
+	}
+
+	return models.User{}, "", nil
 }
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) error {
@@ -657,10 +735,10 @@ func (s *Server) handleGetUserByID(w http.ResponseWriter, r *http.Request) error
 	return WriteJSON(w, http.StatusOK, user)
 }
 
-func (s *Server) handleUpdateUserByID(w http.ResponseWriter, r *http.Request) error {
-	user, err := s.store.GetUserByID(uuid.MustParse(chi.URLParam(r, "id")))
+func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) error {
+	user, _, err := getUserIdentity(s, r)
 	if err != nil {
-		return WriteJSON(w, http.StatusNotFound, Error{Message: "user not found", Error: err.Error()})
+		return err
 	}
 
 	updateUserReq := new(models.UpdateUserRequest)
@@ -671,17 +749,17 @@ func (s *Server) handleUpdateUserByID(w http.ResponseWriter, r *http.Request) er
 	user.FirstName = updateUserReq.FirstName
 	user.LastName = updateUserReq.LastName
 
-	if err := s.store.UpdateUser(user); err != nil {
+	if err := s.store.UpdateUser(&user); err != nil {
 		return err
 	}
 
 	return WriteJSON(w, http.StatusOK, user)
 }
 
-func (s *Server) handleUpdateUserEmailByID(w http.ResponseWriter, r *http.Request) error {
-	user, err := s.store.GetUserByID(uuid.MustParse(chi.URLParam(r, "id")))
+func (s *Server) handleUpdateUserEmail(w http.ResponseWriter, r *http.Request) error {
+	user, _, err := getUserIdentity(s, r)
 	if err != nil {
-		return WriteJSON(w, http.StatusNotFound, Error{Message: "user not found", Error: err.Error()})
+		return err
 	}
 
 	updateUserEmailReq := new(models.UpdateUserEmailRequest)
@@ -691,19 +769,26 @@ func (s *Server) handleUpdateUserEmailByID(w http.ResponseWriter, r *http.Reques
 
 	if updateUserEmailReq.Email == user.Email {
 		fmt.Println("email is the same")
-		return WriteJSON(w, http.StatusBadRequest, Error{Message: "email is the same", Error: "email is the same"})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "email is the same", Error: "email is the same", Code: "email_update_unchanged"})
+	}
+
+	// validate user with requested email doesn't exist
+	existingUser, _ := s.store.GetUserByEmail(updateUserEmailReq.Email)
+
+	if existingUser != nil {
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "email taken", Error: "a user with this email already exists", Code: "email_taken"})
 	}
 
 	user.UpdatedEmail = updateUserEmailReq.Email
 	now := time.Now()
 	user.UpdatedEmailAt = &now
 
-	if err := s.store.UpdateUser(user); err != nil {
+	if err := s.store.UpdateUser(&user); err != nil {
 		return err
 	}
 
 	// send email confirmation
-	emailConfirmationToken, err := generateToken(user, "email_confirmation")
+	emailConfirmationToken, err := generateToken(&user, "email_confirmation")
 	if err != nil {
 		return err
 	}
@@ -731,13 +816,13 @@ func (s *Server) handleResendUpdateEmail(w http.ResponseWriter, r *http.Request)
 	return WriteJSON(w, http.StatusOK, map[string]any{"message": "email sent"})
 }
 
-func (s *Server) handleDeleteUserByID(w http.ResponseWriter, r *http.Request) error {
-	id, err := uuid.Parse(chi.URLParam(r, "id"))
+func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) error {
+	user, _, err := getUserIdentity(s, r)
 	if err != nil {
-		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid id", Error: err.Error()})
+		return err
 	}
 
-	if err := s.store.DeleteUserByID(id); err != nil {
+	if err := s.store.DeleteUserByID(user.ID); err != nil {
 		return WriteJSON(w, http.StatusInternalServerError, Error{Message: "failed to delete user", Error: err.Error()})
 	}
 
