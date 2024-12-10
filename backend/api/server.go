@@ -23,9 +23,16 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-type ApiError struct {
+type Error struct {
 	Message string `json:"message"`
 	Error   string `json:"error"`
+	Code    string `json:"code,omitempty"`
+}
+
+type Response struct {
+	Message string `json:"message"`
+	Data    string `json:"data"`
+	Code    string `json:"code,omitempty"`
 }
 
 type apiFunc func(http.ResponseWriter, *http.Request) error
@@ -44,11 +51,14 @@ func NewServer(listenAddr string, store storage.Storage) *Server {
 
 func (s *Server) Start() error {
 	r := chi.NewRouter()
-
 	stripe.Key = os.Getenv("STRIPE_KEY")
 
 	r.NotFound(makeHttpHandleFunc(handleNotFound))
 	r.MethodNotAllowed(makeHttpHandleFunc(handleMethodNotAllowed))
+
+	r.Get("/uuid", makeHttpHandleFunc(func(w http.ResponseWriter, r *http.Request) error {
+		return WriteJSON(w, http.StatusOK, map[string]string{"uuid": uuid.New().String()})
+	}))
 
 	r.Route("/auth", func(r chi.Router) {
 		r.Get("/identity", makeHttpHandleFunc(s.handleIdentity))
@@ -61,7 +71,7 @@ func (s *Server) Start() error {
 	})
 
 	r.Route("/tokens", func(r chi.Router) {
-		// r.Get("/", makeHttpHandleFunc(s.handleGetAllTokens))
+		r.Get("/", makeHttpHandleFunc(s.handleGetAllTokens))
 		// r.Post("/", makeHttpHandleFunc(s.handleCreateToken))
 		// r.Delete("/{id}", makeHttpHandleFunc(s.handleDeleteToken))
 	})
@@ -108,11 +118,11 @@ func (s *Server) Start() error {
 }
 
 func handleNotFound(w http.ResponseWriter, req *http.Request) error {
-	return WriteJSON(w, http.StatusNotFound, ApiError{Message: fmt.Sprintf("cannot %s %s", req.Method, req.URL.Path), Error: "route not found"})
+	return WriteJSON(w, http.StatusNotFound, Error{Message: fmt.Sprintf("cannot %s %s", req.Method, req.URL.Path), Error: "route not found"})
 }
 
 func handleMethodNotAllowed(w http.ResponseWriter, req *http.Request) error {
-	return WriteJSON(w, http.StatusMethodNotAllowed, ApiError{Message: fmt.Sprintf("cannot %s %s", req.Method, req.URL.Path), Error: "method not allowed"})
+	return WriteJSON(w, http.StatusMethodNotAllowed, Error{Message: fmt.Sprintf("cannot %s %s", req.Method, req.URL.Path), Error: "method not allowed"})
 }
 
 func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
@@ -123,13 +133,13 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 		// If no auth token, check for refresh token
 		refreshToken, err := r.Cookie("refresh-token")
 		if err != nil {
-			return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: "no tokens found"})
+			return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user is not authenticated", Error: "no tokens found"})
 		}
 
 		// Parse and check if refresh token is valid
 		userId, tokenType, err := util.ParseJWT(refreshToken.Value)
 		if err != nil || tokenType != "refresh" {
-			return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: "invalid refresh token"})
+			return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user is not authenticated", Error: "invalid refresh token"})
 		}
 
 		// If valid, generate auth token and set cookie, then return user
@@ -147,7 +157,7 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 				Path:    "/",
 				Expires: time.Unix(0, 0),
 			})
-			return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "user not found", Error: err.Error()})
+			return WriteJSON(w, http.StatusBadRequest, Error{Message: "user not found", Error: err.Error()})
 		}
 
 		userData := models.NewUserIdentityResponse(user)
@@ -174,13 +184,13 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 		// If invalid, check for refresh token
 		refreshToken, err := r.Cookie("refresh-token")
 		if err != nil {
-			return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: "invalid token"})
+			return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user is not authenticated", Error: "invalid token"})
 		}
 
 		// Parse and check if refresh token is valid
 		userId, tokenType, err = util.ParseJWT(refreshToken.Value)
 		if err != nil || tokenType != "refresh" {
-			return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: "invalid token"})
+			return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user is not authenticated", Error: "invalid token"})
 		}
 	}
 
@@ -193,7 +203,7 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 			Path:    "/",
 			Expires: time.Unix(0, 0),
 		})
-		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user not found", Error: err.Error()})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user not found", Error: err.Error()})
 	}
 
 	token, err := generateToken(userData, "auth")
@@ -217,21 +227,21 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) error {
 	refreshToken, err := r.Cookie("refresh-token")
 	if err != nil {
-		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: err.Error()})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user is not authenticated", Error: err.Error()})
 	}
 
 	userId, authTokenType, err := util.ParseJWT(refreshToken.Value)
 	if err != nil {
-		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: err.Error()})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user is not authenticated", Error: err.Error()})
 	}
 
 	if authTokenType != "refresh" {
-		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: "unauthorized"})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user is not authenticated", Error: "unauthorized"})
 	}
 
 	user, err := s.store.GetUserByID(uuid.MustParse(userId))
 	if err != nil {
-		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: err.Error()})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user is not authenticated", Error: err.Error()})
 	}
 
 	authToken, err := generateToken(user, "auth")
@@ -258,16 +268,16 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) error {
 		if err == io.EOF {
 			errorMsg = "request body is empty"
 		}
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: errorMsg})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: errorMsg})
 	}
 
 	if signupReq.Email == "" || signupReq.Password == "" {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: "email and password are required"})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: "email and password are required"})
 	}
 
 	existingUser, _ := s.store.GetUserByEmail(signupReq.Email)
 	if existingUser != nil {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "cannot signup", Error: "an account with this email already exists"})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "cannot signup", Error: "an account with this email already exists"})
 	}
 
 	eightOrMore, number, upper, special := util.ValidatePassword(signupReq.Password)
@@ -293,7 +303,7 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) error {
 			errorMessage = strings.Join(errorMessages[:lastIndex], ", ") + ", and " + errorMessages[lastIndex]
 			errorMessage = "Password must " + errorMessage
 		}
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: errorMessage})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: errorMessage})
 	}
 
 	hashedPassword, err := hashAndSaltPassword(signupReq.Password)
@@ -301,18 +311,19 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	// store user in db
+	// create user object
 	user := models.NewUser(&models.CreateUserRequest{
 		Email:          signupReq.Email,
 		HashedPassword: hashedPassword,
 	})
 
+	// store user object in db
 	if err := s.store.CreateUser(user); err != nil {
 		return err
 	}
 
 	// generate auth confirmation token
-	authToken, err := generateToken(user, "email_confirmation")
+	confirmationToken, err := generateToken(user, "email_confirmation")
 	if err != nil {
 		return err
 	}
@@ -331,15 +342,41 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) error {
 		HttpOnly: true,
 	})
 
-	confirmationUrl := fmt.Sprintf("%s/auth/confirm?token=%s", os.Getenv("APP_URL"), authToken)
+	confirmationUrl := fmt.Sprintf("%s/auth/confirm?token=%s", os.Getenv("APP_URL"), confirmationToken)
 
-	fmt.Println("confirmation url:", confirmationUrl)
 	// send confirmation email
 	err = util.SendEmail(signupReq.Email, "Confirm your email", fmt.Sprintf("Click here to confirm your email: %s", confirmationUrl))
 
 	if err != nil {
 		return err
 	}
+
+	// generate auth tokens
+	authToken, err := generateToken(user, "auth")
+	if err != nil {
+		return err
+	}
+
+	refreshToken, err := generateToken(user, "refresh")
+	if err != nil {
+		return err
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth-token",
+		Value:    authToken,
+		Path:     "/",
+		MaxAge:   60 * 15,
+		HttpOnly: true,
+	})
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh-token",
+		Value:    refreshToken,
+		Path:     "/",
+		MaxAge:   60 * 60 * 24 * 90,
+		HttpOnly: true,
+	})
 
 	// redirect to confirm-email page
 	redirectUrl := fmt.Sprintf("%s/auth/confirm-email?email=%s", os.Getenv("APP_URL"), signupReq.Email)
@@ -351,23 +388,23 @@ func (s *Server) handleResendEmail(w http.ResponseWriter, r *http.Request) error
 	authToken, err := r.Cookie("auth-token")
 
 	if err != nil {
-		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: err.Error()})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user is not authenticated", Error: err.Error()})
 	}
 
 	userId, authTokenType, err := util.ParseJWT(authToken.Value)
 	if err != nil || authTokenType != "auth" {
-		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: err.Error()})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user is not authenticated", Error: err.Error()})
 	}
 
 	user, err := s.store.GetUserByID(uuid.MustParse(userId))
 	if err != nil {
 		fmt.Printf("Error getting user: %v\n", err)
-		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "invalid token", Error: err.Error()})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid token", Error: err.Error()})
 	}
 
 	// verify users email isn't already confirmed
 	if user.EmailConfirmedAt != nil {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "email already confirmed", Error: "email already confirmed"})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "email already confirmed", Error: "email already confirmed"})
 	}
 
 	emailConfirmationToken, err := generateToken(user, "email_confirmation")
@@ -397,12 +434,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 	user, err := s.store.GetUserByEmail(loginReq.Email)
 
 	if err != nil {
-		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "invalid credentials", Error: "unauthorized"})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid credentials", Error: "unauthorized"})
 	}
 
 	passwordMatches := comparePasswords(user.HashedPassword, loginReq.Password)
 	if !passwordMatches {
-		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "invalid credentials", Error: "invalid email or password"})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid credentials", Error: "invalid email or password"})
 	}
 
 	authToken, err := generateToken(user, "auth")
@@ -462,11 +499,11 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) error {
 func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request) error {
 	tokenReq := new(models.ConfirmEmailTokenRequest)
 	if err := json.NewDecoder(r.Body).Decode(tokenReq); err != nil {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: err.Error()})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: err.Error()})
 	}
 
 	if tokenReq.Token == "" {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: "token is required"})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: "token is required"})
 	}
 
 	token, err := jwt.Parse(tokenReq.Token, func(token *jwt.Token) (any, error) {
@@ -474,22 +511,22 @@ func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request)
 	})
 
 	if err != nil {
-		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "invalid token", Error: err.Error()})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid token", Error: err.Error()})
 	}
 
 	userId, ok := token.Claims.(jwt.MapClaims)["user_id"]
 	if !ok {
-		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "invalid token"})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid token"})
 	}
 
 	uuid, err := uuid.Parse(userId.(string))
 	if err != nil {
-		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "invalid token"})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid token"})
 	}
 
 	user, err := s.store.GetUserByID(uuid)
 	if err != nil {
-		return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "invalid token"})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid token"})
 	}
 
 	authToken, err := generateToken(user, "auth")
@@ -503,11 +540,13 @@ func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request)
 	}
 
 	now := time.Now()
-	user.EmailConfirmedAt = &now
 
 	if user.UpdatedEmail != "" {
 		user.Email = user.UpdatedEmail
 		user.UpdatedEmail = ""
+		user.UpdatedEmailConfirmedAt = &now
+	} else {
+		user.EmailConfirmedAt = &now
 	}
 
 	if err := s.store.UpdateUser(user); err != nil {
@@ -607,12 +646,12 @@ func (s *Server) handleGetAllUsers(w http.ResponseWriter, r *http.Request) error
 func (s *Server) handleGetUserByID(w http.ResponseWriter, r *http.Request) error {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid id", Error: err.Error()})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid id", Error: err.Error()})
 	}
 
 	user, err := s.store.GetUserByID(id)
 	if err != nil {
-		return WriteJSON(w, http.StatusNotFound, ApiError{Message: fmt.Sprintf("cannot %s %s", r.Method, r.URL.Path), Error: "user not found"})
+		return WriteJSON(w, http.StatusNotFound, Error{Message: fmt.Sprintf("cannot %s %s", r.Method, r.URL.Path), Error: "user not found"})
 	}
 
 	return WriteJSON(w, http.StatusOK, user)
@@ -621,7 +660,7 @@ func (s *Server) handleGetUserByID(w http.ResponseWriter, r *http.Request) error
 func (s *Server) handleUpdateUserByID(w http.ResponseWriter, r *http.Request) error {
 	user, err := s.store.GetUserByID(uuid.MustParse(chi.URLParam(r, "id")))
 	if err != nil {
-		return WriteJSON(w, http.StatusNotFound, ApiError{Message: "user not found", Error: err.Error()})
+		return WriteJSON(w, http.StatusNotFound, Error{Message: "user not found", Error: err.Error()})
 	}
 
 	updateUserReq := new(models.UpdateUserRequest)
@@ -642,7 +681,7 @@ func (s *Server) handleUpdateUserByID(w http.ResponseWriter, r *http.Request) er
 func (s *Server) handleUpdateUserEmailByID(w http.ResponseWriter, r *http.Request) error {
 	user, err := s.store.GetUserByID(uuid.MustParse(chi.URLParam(r, "id")))
 	if err != nil {
-		return WriteJSON(w, http.StatusNotFound, ApiError{Message: "user not found", Error: err.Error()})
+		return WriteJSON(w, http.StatusNotFound, Error{Message: "user not found", Error: err.Error()})
 	}
 
 	updateUserEmailReq := new(models.UpdateUserEmailRequest)
@@ -652,7 +691,7 @@ func (s *Server) handleUpdateUserEmailByID(w http.ResponseWriter, r *http.Reques
 
 	if updateUserEmailReq.Email == user.Email {
 		fmt.Println("email is the same")
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "email is the same", Error: "email is the same"})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "email is the same", Error: "email is the same"})
 	}
 
 	user.UpdatedEmail = updateUserEmailReq.Email
@@ -695,11 +734,11 @@ func (s *Server) handleResendUpdateEmail(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleDeleteUserByID(w http.ResponseWriter, r *http.Request) error {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid id", Error: err.Error()})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid id", Error: err.Error()})
 	}
 
 	if err := s.store.DeleteUserByID(id); err != nil {
-		return WriteJSON(w, http.StatusInternalServerError, ApiError{Message: "failed to delete user", Error: err.Error()})
+		return WriteJSON(w, http.StatusInternalServerError, Error{Message: "failed to delete user", Error: err.Error()})
 	}
 
 	return WriteJSON(w, http.StatusNoContent, nil)
@@ -709,31 +748,31 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) erro
 	file, fileHeader, err := r.FormFile("avatar")
 
 	if err != nil {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: err.Error()})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: err.Error()})
 	}
 
 	if file == nil {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: "file is required"})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: "file is required"})
 	}
 
 	buf, err := io.ReadAll(file)
 	if err != nil {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: err.Error()})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: err.Error()})
 	}
 
 	fileType, err := filetype.MatchReader(bytes.NewReader(buf))
 	if err != nil {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: err.Error()})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: err.Error()})
 	}
 
 	if fileType.MIME.Value != "image/jpeg" && fileType.MIME.Value != "image/png" {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "invalid request", Error: "file must be a jpeg or png"})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: "file must be a jpeg or png"})
 	}
 
 	fmt.Println("file type:", fileType.MIME.Value)
 
 	if fileHeader.Size > 2000000 {
-		return WriteJSON(w, http.StatusBadRequest, ApiError{Message: "file too large", Error: "file too large"})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "file too large", Error: "file too large"})
 	}
 
 	// filename, _, err := util.UploadFileToS3(buf)
@@ -759,6 +798,33 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) erro
 	return WriteJSON(w, http.StatusOK, map[string]any{"location": "", "file_type": fileType})
 }
 
+func (s *Server) handleGetAllTokens(w http.ResponseWriter, r *http.Request) error {
+	// get current user from auth token
+	//authToken, err := r.Cookie("auth-token")
+	//
+	//if err != nil {
+	//	return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: err.Error()})
+	//}
+	//
+	//userId, authTokenType, err := util.ParseJWT(authToken.Value)
+	//if err != nil || authTokenType != "auth" {
+	//	return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: err.Error()})
+	//}
+
+	//user, err := s.store.GetUserByID(uuid.MustParse(userId))
+	//if err != nil {
+	//	return WriteJSON(w, http.StatusUnauthorized, ApiError{Message: "user is not authenticated", Error: err.Error()})
+	//}
+
+	// get all of their api tokens from db
+	//tokens, err := s.store.GetAPITokensByUserID(user.ID)
+	//if err != nil {
+	//	return WriteJSON(w, http.StatusInternalServerError, ApiError{Message: "error getting tokens", Error: err.Error()})
+	//}
+
+	return WriteJSON(w, http.StatusOK, nil)
+}
+
 func WriteJSON(w http.ResponseWriter, status int, v any) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status) // this needs to be after setting content type
@@ -768,7 +834,7 @@ func WriteJSON(w http.ResponseWriter, status int, v any) error {
 func makeHttpHandleFunc(f apiFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := f(w, r); err != nil {
-			WriteJSON(w, http.StatusBadRequest, ApiError{Message: fmt.Sprintf("cannot %s %s", r.Method, r.URL.Path), Error: err.Error()})
+			WriteJSON(w, http.StatusBadRequest, Error{Message: fmt.Sprintf("cannot %s %s", r.Method, r.URL.Path), Error: err.Error()})
 		}
 	}
 }
