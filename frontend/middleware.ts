@@ -97,7 +97,10 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL("/dashboard", request.url));
       }
 
-      if (updateEmailRequested && pathname.startsWith("/auth/confirm")) {
+      if (
+        (updateEmailRequested && pathname.startsWith("/auth/confirm")) ||
+        (!emailConfirmed && pathname.startsWith("/auth/confirm"))
+      ) {
         return nextResponse;
       }
 
