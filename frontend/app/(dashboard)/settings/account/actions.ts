@@ -59,8 +59,8 @@ export async function updateUserEmail({
     .then((res) => {
       return res.data;
     })
-    .catch(() => {
-      return null;
+    .catch((err) => {
+      return err.response.data;
     });
 
   return response;
