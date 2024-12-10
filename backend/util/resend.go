@@ -16,11 +16,17 @@ func SendEmail(to string, subject string, html string) error {
 
 	client := resend.NewClient(apiKey)
 
+	toAddress := to
+
+	if os.Getenv("ENVIRONMENT") == "development" {
+		toAddress = os.Getenv("TEST_DELIVERED_EMAIL")
+	}
+
 	params := &resend.SendEmailRequest{
-		From: fromAddress,
-		To: []string{to},
+		From:    fromAddress,
+		To:      []string{toAddress},
 		Subject: subject,
-		Html: html,
+		Html:    html,
 	}
 
 	_, err := client.Emails.Send(params)
