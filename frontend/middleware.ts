@@ -67,12 +67,8 @@ export async function middleware(request: NextRequest) {
 
       console.log("user data", userData);
 
-      const emailConfirmed = userData && userData.email_confirmed_at;
-      const updateEmailRequested =
-        userData &&
-        userData.updated_email &&
-        userData.updated_email_at &&
-        !userData.updated_email_confirmed_at;
+      const emailConfirmed = userData && userData.email_confirmed;
+      const updateEmailRequested = userData && userData.updated_email;
 
       const nextResponse = NextResponse.next();
 
