@@ -601,7 +601,36 @@ func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleVerifyPassword(w http.ResponseWriter, r *http.Request) error {
-	return nil
+	verifyPasswordRequest := new(models.VerifyPasswordRequest)
+	if err := json.NewDecoder(r.Body).Decode(verifyPasswordRequest); err != nil {
+		return err
+	}
+
+	user, _, err := getUserIdentity(s, r)
+
+	if err != nil {
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid credentials", Error: "unauthorized"})
+	}
+
+	passwordMatches := comparePasswords(user.HashedPassword, verifyPasswordRequest.Password)
+	if !passwordMatches {
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid credentials", Error: "invalid password", Code: "password_not_verified"})
+	}
+
+	resetEmailToken, err := generateToken(&user, "reset_email")
+	if err != nil {
+		return err
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "reset-email-token",
+		Value:    resetEmailToken,
+		Path:     "/",
+		MaxAge:   60 * 60 * 24 * 90,
+		HttpOnly: true,
+	})
+
+	return WriteJSON(w, http.StatusOK, Response{Message: "password verified", Code: "password_verified"})
 }
 
 func hashAndSaltPassword(password string) (string, error) {
@@ -617,7 +646,7 @@ func comparePasswords(hashedPassword, password string) bool {
 }
 
 func generateToken(user *models.User, tokenType string) (string, error) {
-	if tokenType != "auth" && tokenType != "refresh" && tokenType != "reset_password" && tokenType != "forgot_password" && tokenType != "email_confirmation" && tokenType != "email_resend" && tokenType != "password_verification" {
+	if tokenType != "auth" && tokenType != "refresh" && tokenType != "reset_password" && tokenType != "forgot_password" && tokenType != "email_confirmation" && tokenType != "email_resend" && tokenType != "reset_email" {
 		return "", fmt.Errorf("invalid token type")
 	}
 
@@ -630,7 +659,7 @@ func generateToken(user *models.User, tokenType string) (string, error) {
 			if tokenType == "email_resend" {
 				return time.Now().Add(time.Hour * 24).Unix()
 			}
-			if tokenType == "password_verification" {
+			if tokenType == "reset_email" {
 				return time.Now().Add(time.Minute * 10).Unix()
 			}
 			return time.Now().Add(time.Minute * 15).Unix()
@@ -762,6 +791,25 @@ func (s *Server) handleUpdateUserEmail(w http.ResponseWriter, r *http.Request) e
 		return err
 	}
 
+	resetEmailToken, err := r.Cookie("reset=email-token")
+	if err != nil {
+		return WriteJSON(w, http.StatusForbidden, Error{Message: "forbidden", Error: "token is invalid or expired", Code: "invalid_token"})
+	}
+
+	userId, authTokenType, err := util.ParseJWT(resetEmailToken.Value)
+
+	if err != nil {
+		return WriteJSON(w, http.StatusForbidden, Error{Message: "forbidden", Error: "token is invalid or expired", Code: "invalid_token"})
+	}
+
+	if uuid.MustParse(userId) != user.ID {
+		return WriteJSON(w, http.StatusForbidden, Error{Message: "forbidden", Error: "cannot reset email", Code: "email_mismatch"})
+	}
+
+	if authTokenType != "reset_email" {
+		return WriteJSON(w, http.StatusForbidden, Error{Message: "forbidden", Error: "token is invalid or expired", Code: "invalid_token"})
+	}
+
 	updateUserEmailReq := new(models.UpdateUserEmailRequest)
 	if err := json.NewDecoder(r.Body).Decode(updateUserEmailReq); err != nil {
 		return err
@@ -769,7 +817,7 @@ func (s *Server) handleUpdateUserEmail(w http.ResponseWriter, r *http.Request) e
 
 	if updateUserEmailReq.Email == user.Email {
 		fmt.Println("email is the same")
-		return WriteJSON(w, http.StatusBadRequest, Error{Message: "email is the same", Error: "email is the same", Code: "email_update_unchanged"})
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "email is the same", Error: "email is the same", Code: "email_unchanged"})
 	}
 
 	// validate user with requested email doesn't exist
@@ -795,15 +843,21 @@ func (s *Server) handleUpdateUserEmail(w http.ResponseWriter, r *http.Request) e
 
 	confirmationUrl := fmt.Sprintf("%s/auth/confirm?token=%s", os.Getenv("APP_URL"), emailConfirmationToken)
 
-	err = util.SendEmail(user.UpdatedEmail, "Confirm your email", fmt.Sprintf("Please confirm your email by clicking <a href=\"%s\">here</a>", confirmationUrl))
+	// send confirmation to new email
+	err = util.SendEmail(user.UpdatedEmail, "Confirm your new email", fmt.Sprintf("Please confirm your email by clicking <a href=\"%s\">here</a>", confirmationUrl))
 	if err != nil {
 		fmt.Printf("Error sending email: %v\n", err)
 		return err
 	}
 
-	fmt.Println("email confirmation url:", confirmationUrl)
+	// send notice to current email
+	err = util.SendEmail(user.Email, "Security Notice: Email Change Request Initiated", fmt.Sprintf("Someone requested to change your email to %s. If this was you, you can safely ignore this email. If it wasn't, please contact support immediately.", confirmationUrl))
+	if err != nil {
+		fmt.Printf("Error sending email: %v\n", err)
+		return err
+	}
 
-	return WriteJSON(w, http.StatusOK, map[string]any{"message": "email updated", "updated_email": user.UpdatedEmail, "email": user.Email})
+	return WriteJSON(w, http.StatusOK, map[string]any{"message": "email update requested", "updated_email": user.UpdatedEmail, "email": user.Email})
 }
 
 func (s *Server) handleResendUpdateEmail(w http.ResponseWriter, r *http.Request) error {
