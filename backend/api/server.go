@@ -166,16 +166,20 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 		user, err := s.store.GetUserByID(uuid.MustParse(userId))
 		if err != nil {
 			http.SetCookie(w, &http.Cookie{
-				Name:    "auth-token",
-				Value:   "",
-				Path:    "/",
-				Expires: time.Unix(0, 0),
+				Name:     "auth-token",
+				Value:    "",
+				Path:     "/",
+				Expires:  time.Unix(0, 0),
+				Secure:   true,
+				SameSite: http.SameSiteLaxMode,
 			})
 			http.SetCookie(w, &http.Cookie{
-				Name:    "refresh-token",
-				Value:   "",
-				Path:    "/",
-				Expires: time.Unix(0, 0),
+				Name:     "refresh-token",
+				Value:    "",
+				Path:     "/",
+				Expires:  time.Unix(0, 0),
+				Secure:   true,
+				SameSite: http.SameSiteLaxMode,
 			})
 			return WriteJSON(w, http.StatusBadRequest, Error{Message: "user not found", Error: err.Error()})
 		}
@@ -193,6 +197,8 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 			Path:     "/",
 			MaxAge:   60 * 15,
 			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
 		})
 
 		return WriteJSON(w, http.StatusOK, userData)
@@ -218,10 +224,12 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 	userData, err := s.store.GetUserByID(uuid.MustParse(userId))
 	if err != nil {
 		http.SetCookie(w, &http.Cookie{
-			Name:    "auth-token",
-			Value:   "",
-			Path:    "/",
-			Expires: time.Unix(0, 0),
+			Name:     "auth-token",
+			Value:    "",
+			Path:     "/",
+			Expires:  time.Unix(0, 0),
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
 		})
 		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user not found", Error: err.Error()})
 	}
@@ -237,6 +245,8 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 		Path:     "/",
 		MaxAge:   60 * 15,
 		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	user := models.NewUserIdentityResponse(userData)
@@ -275,6 +285,8 @@ func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) erro
 		Path:     "/",
 		MaxAge:   60 * 15,
 		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	return WriteJSON(w, http.StatusOK, nil)
@@ -360,6 +372,8 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) error {
 		Path:     "/",
 		MaxAge:   60 * 60 * 24,
 		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	confirmationUrl := fmt.Sprintf("%s/auth/confirm?token=%s", os.Getenv("APP_URL"), confirmationToken)
@@ -388,14 +402,18 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) error {
 		Path:     "/",
 		MaxAge:   60 * 15,
 		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh-token",
 		Value:    refreshToken,
-		Path:     "/",
+		Path:     "/auth/refresh",
 		MaxAge:   60 * 60 * 24 * 90,
 		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	// redirect to confirm-email page
@@ -479,14 +497,18 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 		Path:     "/",
 		MaxAge:   60 * 15,
 		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh-token",
 		Value:    refreshToken,
-		Path:     "/",
+		Path:     "/auth/refresh",
 		MaxAge:   60 * 60 * 24 * 90,
 		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	return WriteJSON(w, http.StatusOK, nil)
@@ -494,24 +516,30 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) error {
 	http.SetCookie(w, &http.Cookie{
-		Name:    "auth-token",
-		Value:   "",
-		Path:    "/",
-		Expires: time.Unix(0, 0),
+		Name:     "auth-token",
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0),
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	http.SetCookie(w, &http.Cookie{
-		Name:    "refresh-token",
-		Value:   "",
-		Path:    "/",
-		Expires: time.Unix(0, 0),
+		Name:     "refresh-token",
+		Value:    "",
+		Path:     "/auth/refresh",
+		Expires:  time.Unix(0, 0),
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	http.SetCookie(w, &http.Cookie{
-		Name:    "email-resend-token",
-		Value:   "",
-		Path:    "/",
-		Expires: time.Unix(0, 0),
+		Name:     "email-resend-token",
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0),
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	return WriteJSON(w, http.StatusOK, nil)
@@ -580,14 +608,18 @@ func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request)
 		Path:     "/",
 		MaxAge:   60 * 15,
 		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh-token",
 		Value:    refreshToken,
-		Path:     "/",
+		Path:     "/auth/refresh",
 		MaxAge:   60 * 60 * 24 * 90,
 		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	cookies := w.Header()["Set-Cookie"]
@@ -628,6 +660,8 @@ func (s *Server) handleVerifyPassword(w http.ResponseWriter, r *http.Request) er
 		Path:     "/",
 		MaxAge:   60 * 60 * 24 * 90,
 		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	return WriteJSON(w, http.StatusOK, Response{Message: "password verified", Code: "password_verified"})
@@ -791,7 +825,7 @@ func (s *Server) handleUpdateUserEmail(w http.ResponseWriter, r *http.Request) e
 		return err
 	}
 
-	resetEmailToken, err := r.Cookie("reset=email-token")
+	resetEmailToken, err := r.Cookie("reset-email-token")
 	if err != nil {
 		return WriteJSON(w, http.StatusForbidden, Error{Message: "forbidden", Error: "token is invalid or expired", Code: "invalid_token"})
 	}

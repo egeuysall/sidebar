@@ -2,13 +2,13 @@ package models
 
 type AuthToken struct {
 	HashedToken string `json:"hashed_token"`
-	Exp   int64  `json:"exp"`
-	Type  string `json:"type"`
+	Exp         int64  `json:"exp"`
+	Type        string `json:"type"`
 }
 
 type SignupRequest struct {
-	Email     string `json:"email"`
-	Password  string `json:"password"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 type LoginRequest struct {
@@ -18,4 +18,8 @@ type LoginRequest struct {
 
 type ConfirmEmailTokenRequest struct {
 	Token string `json:"token"`
+}
+
+type VerifyPasswordRequest struct {
+	Password string `json:"password"`
 }
