@@ -2,7 +2,7 @@
 
 import Input from "@/components/ui/input";
 import SettingsBox from "@/components/ui/settings-box";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { User } from "@/types";
 import Spinner from "@/components/ui/spinner";
@@ -10,24 +10,32 @@ import {
   resendUpdateEmailConfirmation,
   updateUser,
   updateUserEmail,
+  verifyPassword,
   uploadAvatar,
 } from "./actions";
 import Button from "@/components/ui/button";
 import toast from "@/lib/toast";
 import Image from "next/image";
-
+import Modal from "@/components/ui/modal";
+import AvatarUploader from "@/components/ui/avatar-uploader";
 const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 
 export default function AccountSettingsPage() {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [avatar, setAvatar] = useState<File | undefined>(undefined);
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [password, setPassword] = useState("");
+  const [passwordVerifyLoading, setPasswordVerifyLoading] = useState(false);
+  const [canUpdateEmail, setCanUpdateEmail] = useState(false);
+  const emailForm = useRef<HTMLFormElement>(null);
 
   const [userValues, setUserValues] = useState<{
     firstName?: { initial: string; current: string };
     lastName?: { initial: string; current: string };
     email?: { initial: string; current: string };
     updatedEmail?: string;
+    avatar?: { initial: string; current: string };
   }>({});
 
   async function getUser() {
@@ -55,6 +63,7 @@ export default function AccountSettingsPage() {
       lastName: { initial: user.last_name, current: user.last_name },
       email: { initial: user.email, current: user.email },
       updatedEmail: user.updated_email,
+      avatar: { initial: user.avatar_url, current: user.avatar_url },
     });
   }
 
@@ -65,15 +74,65 @@ export default function AccountSettingsPage() {
     });
   }, []);
 
+  async function updateEmail() {
+    await updateUserEmail({
+      user,
+      email: userValues.email?.current || "",
+    })
+      .then((res) => {
+        console.log(res);
+        if (res.error) {
+          setUserValues({
+            ...userValues,
+            email: {
+              initial: userValues.email?.initial || "",
+              current: userValues.email?.initial || "",
+            },
+          });
+
+          if (res.code == "email_taken") {
+            toast({
+              message: "Email is already taken",
+              mode: "error",
+            });
+          } else {
+            toast({
+              message: "Something went wrong",
+              mode: "error",
+            });
+          }
+        } else {
+          setCanUpdateEmail(false);
+
+          setUserValues({
+            ...userValues,
+            updatedEmail: res?.updated_email || "",
+            email: {
+              initial: res?.email || "",
+              current: res?.email || "",
+            },
+          });
+
+          toast({
+            message: "Email updated",
+            description: "Please check your email for a confirmation link.",
+            mode: "success",
+          });
+        }
+      })
+      .catch((error) => {
+        setCanUpdateEmail(false);
+        toast({
+          message: "Something went wrong",
+          mode: "error",
+        });
+      });
+  }
+
   if (isLoading) return <Spinner />;
 
   return (
     <>
-      {/* <div>
-				<span>Email initial: {userValues.email?.initial}</span>
-				<span>Email current: {userValues.email?.current}</span>
-				<span>Updated email: {userValues.updatedEmail}</span>
-			</div> */}
       <SettingsBox
         title="Your Name"
         description="This will be your display name in the dashboard."
@@ -141,49 +200,14 @@ export default function AccountSettingsPage() {
       <SettingsBox
         title="Your Email"
         description="This will be the email you use to log in to your dashboard and receive notifications."
-        onSettingSubmit={async () =>
-          await updateUserEmail({
-            user,
-            email: userValues.email?.current || "",
-          }).then((res) => {
-            if (res.error) {
-              setUserValues({
-                ...userValues,
-                email: {
-                  initial: userValues.email?.initial || "",
-                  current: userValues.email?.initial || "",
-                },
-              });
-
-              if (res.code == "email_taken") {
-                toast({
-                  message: "Email is already taken",
-                  mode: "error",
-                });
-              } else {
-                toast({
-                  message: "Something went wrong",
-                  mode: "error",
-                });
-              }
-            } else {
-              setUserValues({
-                ...userValues,
-                updatedEmail: res?.updated_email || "",
-                email: {
-                  initial: res?.email || "",
-                  current: res?.email || "",
-                },
-              });
-
-              toast({
-                message: "Email updated",
-                description: "Please check your email for a confirmation link.",
-                mode: "success",
-              });
-            }
-          })
-        }
+        ref={emailForm}
+        onSettingSubmit={async () => {
+          if (canUpdateEmail) {
+            await updateEmail();
+          } else {
+            setEditingEmail(true);
+          }
+        }}
         note={
           userValues.updatedEmail &&
           userValues.email?.initial !== userValues.updatedEmail ? (
@@ -216,6 +240,55 @@ export default function AccountSettingsPage() {
           userValues.email?.current === userValues.updatedEmail
         }
       >
+        <Modal
+          title="Confirm your password"
+          open={editingEmail}
+          onClose={() => setEditingEmail(false)}
+        >
+          <p className="text-sm">
+            Before you can update your email, please type in your password.
+          </p>
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setPasswordVerifyLoading(true);
+
+              await verifyPassword({ password: password || "" }).then(
+                async (res: any) => {
+                  if (res instanceof Error) {
+                    toast({ message: "Invalid password", mode: "error" });
+                    setCanUpdateEmail(false);
+                    return;
+                  }
+
+                  setEditingEmail(false);
+                  setPassword("");
+                  setCanUpdateEmail(true);
+
+                  await updateEmail();
+                },
+              );
+
+              setPasswordVerifyLoading(false);
+            }}
+          >
+            <Input
+              type="password"
+              placeholder="Enter your password"
+              value={password}
+              handleChange={(e) => setPassword(e.target.value)}
+            />
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={password.length === 0 || passwordVerifyLoading}
+              loading={passwordVerifyLoading}
+            >
+              Confirm
+            </Button>
+          </form>
+        </Modal>
         <Input
           type="email"
           placeholder="Email"
@@ -240,14 +313,15 @@ export default function AccountSettingsPage() {
           await uploadAvatar({ user, formData })
             .then(() => {
               toast({
-                message: "Avatar updated",
+                message: "Avatar updated.",
                 mode: "success",
               });
             })
             .catch((error) => {
               console.error(error);
               toast({
-                message: "Error updating avatar",
+                message:
+                  "There was a problem updating your avatar. Please try again.",
                 mode: "error",
               });
             });
@@ -255,20 +329,12 @@ export default function AccountSettingsPage() {
         disabled={!avatar}
         note="Square image recommended. Accepted file types: .png, .jpg. Max file size: 2MB."
       >
-        <Image
-          src={avatar ? URL.createObjectURL(avatar) : user?.avatarUrl || ""}
-          alt="Avatar"
-          width={100}
-          height={100}
-          className="rounded-full object-cover aspect-square"
-        />
-        <Input
-          type="file"
-          placeholder="Avatar"
-          handleChange={(e) =>
-            setAvatar((e.target as HTMLInputElement).files?.[0])
-          }
-        />
+        <div className="flex pt-2">
+          <AvatarUploader
+            handleChange={(e) => setAvatar(e)}
+            initialAvatar={userValues.avatar?.initial || ""}
+          />
+        </div>
       </SettingsBox>
     </>
   );
