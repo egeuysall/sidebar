@@ -62,7 +62,7 @@ func (s *Server) Start() error {
 
 	r.Route("/auth", func(r chi.Router) {
 		r.Get("/identity", makeHttpHandleFunc(s.handleIdentity))
-		r.Post("/refresh", makeHttpHandleFunc(s.handleRefreshToken))
+		r.Get("/refresh", makeHttpHandleFunc(s.handleRefreshToken))
 		r.Post("/signup", makeHttpHandleFunc(s.handleSignup))
 		r.Post("/resend-email", makeHttpHandleFunc(s.handleResendEmail))
 		r.Post("/login", makeHttpHandleFunc(s.handleLogin))
@@ -138,7 +138,7 @@ func (s *Server) Start() error {
 }
 
 func handleNotFound(w http.ResponseWriter, req *http.Request) error {
-	return WriteJSON(w, http.StatusNotFound, Error{Message: fmt.Sprintf("cannot %s %s", req.Method, req.URL.Path), Error: "route not found"})
+	return WriteJSON(w, http.StatusNotFound, Error{Message: fmt.Sprintf("cannot %s %s", req.Method, req.URL.Path), Error: "refresh not found"})
 }
 
 func handleMethodNotAllowed(w http.ResponseWriter, req *http.Request) error {
@@ -409,7 +409,7 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) error {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh-token",
 		Value:    refreshToken,
-		Path:     "/auth/refresh",
+		Path:     "/",
 		MaxAge:   60 * 60 * 24 * 90,
 		HttpOnly: true,
 		Secure:   true,
@@ -504,7 +504,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh-token",
 		Value:    refreshToken,
-		Path:     "/auth/refresh",
+		Path:     "/",
 		MaxAge:   60 * 60 * 24 * 90,
 		HttpOnly: true,
 		Secure:   true,
@@ -527,7 +527,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) error {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh-token",
 		Value:    "",
-		Path:     "/auth/refresh",
+		Path:     "/",
 		Expires:  time.Unix(0, 0),
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
@@ -615,7 +615,7 @@ func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh-token",
 		Value:    refreshToken,
-		Path:     "/auth/refresh",
+		Path:     "/",
 		MaxAge:   60 * 60 * 24 * 90,
 		HttpOnly: true,
 		Secure:   true,
@@ -849,8 +849,7 @@ func (s *Server) handleUpdateUserEmail(w http.ResponseWriter, r *http.Request) e
 		return err
 	}
 
-	if updateUserEmailReq.Email == user.Email {
-		fmt.Println("email is the same")
+	if updateUserEmailReq.Email == user.Email || updateUserEmailReq.Email == user.UpdatedEmail {
 		return WriteJSON(w, http.StatusBadRequest, Error{Message: "email is the same", Error: "email is the same", Code: "email_unchanged"})
 	}
 
@@ -890,6 +889,16 @@ func (s *Server) handleUpdateUserEmail(w http.ResponseWriter, r *http.Request) e
 		fmt.Printf("Error sending email: %v\n", err)
 		return err
 	}
+
+	// delete email update token after single use
+	http.SetCookie(w, &http.Cookie{
+		Name:     "email-update-token",
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0),
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
 
 	return WriteJSON(w, http.StatusOK, map[string]any{"message": "email update requested", "updated_email": user.UpdatedEmail, "email": user.Email})
 }
@@ -948,27 +957,41 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) erro
 		return WriteJSON(w, http.StatusBadRequest, Error{Message: "file too large", Error: "file too large"})
 	}
 
-	// filename, _, err := util.UploadFileToS3(buf)
-	// if err != nil {
-	// 	return err
-	// }
+	filename, _, err := util.UploadFileToS3(buf)
+	if err != nil {
+		return err
+	}
 
-	// cloudfrontUrl := fmt.Sprintf("%s/%s", os.Getenv("CLOUDFRONT_URL"), filename)
+	cloudfrontUrl := fmt.Sprintf("%s/%s", os.Getenv("CLOUDFRONT_URL"), filename)
 
-	// user, err := s.store.GetUserByID(uuid.MustParse(chi.URLParam(r, "id")))
-	// if err != nil {
-	// 	return WriteJSON(w, http.StatusNotFound, ApiError{Message: "user not found", Error: err.Error()})
-	// }
+	authToken, err := r.Cookie("auth-token")
 
-	// user.AvatarUrl = cloudfrontUrl
+	if err != nil {
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "token is invalid or expired", Error: err.Error()})
+	}
 
-	// if err := s.store.UpdateUser(user); err != nil {
-	// 	return err
-	// }
+	userId, authTokenType, err := util.ParseJWT(authToken.Value)
 
-	// return WriteJSON(w, http.StatusOK, map[string]any{"location": cloudfrontUrl, "file_type": fileType})
+	if err != nil {
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "token is invalid or expired", Error: err.Error()})
+	}
 
-	return WriteJSON(w, http.StatusOK, map[string]any{"location": "", "file_type": fileType})
+	if authTokenType != "auth" {
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "token is invalid.", Error: "incorrect token type", Code: "invalid_token"})
+	}
+
+	user, err := s.store.GetUserByID(uuid.MustParse(userId))
+	if err != nil {
+		return WriteJSON(w, http.StatusNotFound, Error{Message: "user not found", Error: err.Error()})
+	}
+
+	user.AvatarUrl = cloudfrontUrl
+
+	if err := s.store.UpdateUser(user); err != nil {
+		return err
+	}
+
+	return WriteJSON(w, http.StatusOK, map[string]any{"location": cloudfrontUrl, "file_type": fileType})
 }
 
 func (s *Server) handleGetAllTokens(w http.ResponseWriter, r *http.Request) error {
