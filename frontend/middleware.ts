@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import axios from "axios";
+import { cookies } from "next/headers";
 
 export async function middleware(request: NextRequest) {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+  const cookieStore = cookies();
 
   if (!apiUrl) {
     console.error("NEXT_PUBLIC_API_URL is not defined");
@@ -12,12 +14,16 @@ export async function middleware(request: NextRequest) {
 
   try {
     // TODO: retain the initial request url to be redirected back to after login
-    const response = await axios.get(`${apiUrl}/auth/identity`, {
-      headers: {
-        Cookie: request.headers.get("Cookie") || "",
-      },
-      withCredentials: true,
-    });
+
+    const response = await axios
+      .get(`${apiUrl}/auth/identity`, {
+        headers: {
+          "auth-token": cookieStore.get("auth-token")?.value || "",
+        },
+        withCredentials: true,
+      })
+      .then((res) => res)
+      .catch((err) => err.response);
 
     const pathname = request.nextUrl.pathname;
 
@@ -27,16 +33,15 @@ export async function middleware(request: NextRequest) {
     if (response.status === 401) {
       const refreshToken = request.cookies.get("refresh-token")?.value;
       if (refreshToken) {
-        const refreshResponse = await axios.post(
-          `${apiUrl}/auth/refresh`,
-          {},
-          {
+        const refreshResponse = await axios
+          .get(`${apiUrl}/auth/refresh`, {
             headers: {
               Cookie: `refresh-token=${refreshToken}`,
             },
             withCredentials: true,
-          },
-        );
+          })
+          .then((res) => res)
+          .catch((err) => err.response);
 
         if (refreshResponse.status === 200) {
           // Set cookies from the refresh response
