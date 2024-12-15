@@ -2,9 +2,9 @@
 
 import Input from "@/components/ui/input";
 import SettingsBox from "@/components/ui/settings-box";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
-import { User } from "@/types";
+import { ApiError, ApiResponse, User } from "@/types";
 import Spinner from "@/components/ui/spinner";
 import {
   resendUpdateEmailConfirmation,
@@ -12,12 +12,18 @@ import {
   updateUserEmail,
   verifyPassword,
   uploadAvatar,
+  deleteAvatar,
+  changePassword,
 } from "./actions";
 import Button from "@/components/ui/button";
 import toast from "@/lib/toast";
-import Image from "next/image";
 import Modal from "@/components/ui/modal";
 import AvatarUploader from "@/components/ui/avatar-uploader";
+import Link from "next/link";
+import { isValidPassword } from "@/lib/validation";
+import { useSearchParams } from "next/navigation";
+import { getErrorMessage, getResponseMessage } from "@/messages";
+
 const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 
 export default function AccountSettingsPage() {
@@ -38,13 +44,19 @@ export default function AccountSettingsPage() {
     avatar?: { initial: string; current: string };
   }>({});
 
-  async function getUser() {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmedNewPassword, setConfirmedNewPassword] = useState("");
+
+  const searchParams = useSearchParams();
+  const message = searchParams.get("message");
+
+  const getUser = useCallback(async () => {
     const user = await axios
       .get(`${apiUrl}/auth/identity`, {
         withCredentials: true,
       })
       .then((response) => {
-        console.log(response.data);
         return response.data;
       })
       .catch((error) => console.error(error));
@@ -65,68 +77,90 @@ export default function AccountSettingsPage() {
       updatedEmail: user.updated_email,
       avatar: { initial: user.avatar_url, current: user.avatar_url },
     });
-  }
+  }, []);
 
   useEffect(() => {
     setIsLoading(true);
     getUser().then(() => {
       setIsLoading(false);
     });
-  }, []);
+  }, [getUser]);
+
+  useEffect(() => {
+    if (!editingEmail) {
+      setUserValues((prev) => ({
+        ...prev,
+        email: {
+          initial: prev.email?.initial || "",
+          current: prev.email?.initial || "",
+        },
+      }));
+    }
+  }, [editingEmail]);
+
+  useEffect(() => {
+    if (message) {
+      toast({
+        message: getResponseMessage(message),
+        mode: "success",
+      });
+
+      // Remove message query param
+      const url = new URL(window.location.href);
+      url.searchParams.delete("message");
+      window.history.replaceState({}, "", url);
+    }
+  }, [message]);
 
   async function updateEmail() {
-    await updateUserEmail({
-      user,
-      email: userValues.email?.current || "",
-    })
-      .then((res) => {
-        console.log(res);
-        if (res.error) {
-          setUserValues({
-            ...userValues,
-            email: {
-              initial: userValues.email?.initial || "",
-              current: userValues.email?.initial || "",
-            },
-          });
+    try {
+      const res = await updateUserEmail({
+        user,
+        email: userValues.email?.current || "",
+      }).then((res) => res);
 
-          if (res.code == "email_taken") {
-            toast({
-              message: "Email is already taken",
-              mode: "error",
-            });
-          } else {
-            toast({
-              message: "Something went wrong",
-              mode: "error",
-            });
-          }
-        } else {
-          setCanUpdateEmail(false);
+      console.log(res);
 
-          setUserValues({
-            ...userValues,
-            updatedEmail: res?.updated_email || "",
-            email: {
-              initial: res?.email || "",
-              current: res?.email || "",
-            },
-          });
+      if (res.error) {
+        setUserValues((prev) => ({
+          ...prev,
+          email: {
+            initial: prev.email?.initial || "",
+            current: prev.email?.initial || "",
+          },
+        }));
 
-          toast({
-            message: "Email updated",
-            description: "Please check your email for a confirmation link.",
-            mode: "success",
-          });
-        }
-      })
-      .catch((error) => {
-        setCanUpdateEmail(false);
         toast({
-          message: "Something went wrong",
+          message: getErrorMessage(res.code) || "Something went wrong",
           mode: "error",
         });
+        return;
+      }
+
+      setCanUpdateEmail(false);
+
+      setUserValues((prev) => ({
+        ...prev,
+        updatedEmail: res.data.updated_email || "",
+        email: {
+          initial: res.data.email || "",
+          current: res.data.email || "",
+        },
+      }));
+
+      toast({
+        message: "Email updated",
+        description: "Please check your email for a confirmation link.",
+        mode: "success",
       });
+    } catch (error) {
+      console.error("Error updating email:", error);
+      setCanUpdateEmail(false);
+      toast({
+        message: "Something went wrong",
+        mode: "error",
+      });
+    }
   }
 
   if (isLoading) return <Spinner />;
@@ -136,7 +170,7 @@ export default function AccountSettingsPage() {
       <SettingsBox
         title="Your Name"
         description="This will be your display name in the dashboard."
-        note="Max 32 characters"
+        note="Max 32 characters."
         onSettingSubmit={async () => {
           await updateUser({
             user,
@@ -144,17 +178,17 @@ export default function AccountSettingsPage() {
             lastName: userValues.lastName?.current,
           });
 
-          setUserValues({
-            ...userValues,
+          setUserValues((prev) => ({
+            ...prev,
             firstName: {
-              initial: userValues.firstName?.current || "",
-              current: userValues.firstName?.current || "",
+              initial: prev.firstName?.current || "",
+              current: prev.firstName?.current || "",
             },
             lastName: {
-              initial: userValues.lastName?.current || "",
-              current: userValues.lastName?.current || "",
+              initial: prev.lastName?.current || "",
+              current: prev.lastName?.current || "",
             },
-          });
+          }));
 
           toast({
             message: "Profile updated",
@@ -172,13 +206,13 @@ export default function AccountSettingsPage() {
             placeholder="First Name"
             value={userValues.firstName?.current}
             handleChange={(e) =>
-              setUserValues({
-                ...userValues,
+              setUserValues((prev) => ({
+                ...prev,
                 firstName: {
-                  initial: userValues.firstName?.initial || "",
+                  initial: prev.firstName?.initial || "",
                   current: e.target.value,
                 },
-              })
+              }))
             }
           />
           <Input
@@ -186,13 +220,13 @@ export default function AccountSettingsPage() {
             placeholder="Last Name"
             value={userValues.lastName?.current}
             handleChange={(e) =>
-              setUserValues({
-                ...userValues,
+              setUserValues((prev) => ({
+                ...prev,
                 lastName: {
-                  initial: userValues.lastName?.initial || "",
+                  initial: prev.lastName?.initial || "",
                   current: e.target.value,
                 },
-              })
+              }))
             }
           />
         </div>
@@ -205,7 +239,11 @@ export default function AccountSettingsPage() {
           if (canUpdateEmail) {
             await updateEmail();
           } else {
-            setEditingEmail(true);
+            if (editingEmail) {
+              setEditingEmail(false);
+            } else {
+              setEditingEmail(true);
+            }
           }
         }}
         note={
@@ -218,7 +256,8 @@ export default function AccountSettingsPage() {
                 className="underline"
                 variant="link"
                 handleClick={() =>
-                  resendUpdateEmailConfirmation({ user }).then(() => {
+                  resendUpdateEmailConfirmation({ user }).then((res: any) => {
+                    console.log(res);
                     toast({
                       message: "Email sent",
                       description:
@@ -243,7 +282,11 @@ export default function AccountSettingsPage() {
         <Modal
           title="Confirm your password"
           open={editingEmail}
-          onClose={() => setEditingEmail(false)}
+          setOpen={setEditingEmail}
+          onClose={() => {
+            setEditingEmail(false);
+            setPassword("");
+          }}
         >
           <p className="text-sm">
             Before you can update your email, please type in your password.
@@ -254,23 +297,33 @@ export default function AccountSettingsPage() {
               e.preventDefault();
               setPasswordVerifyLoading(true);
 
-              await verifyPassword({ password: password || "" }).then(
-                async (res: any) => {
-                  if (res instanceof Error) {
-                    toast({ message: "Invalid password", mode: "error" });
-                    setCanUpdateEmail(false);
-                    return;
-                  }
+              try {
+                const res = await verifyPassword({
+                  password: password || "",
+                });
 
-                  setEditingEmail(false);
+                if (res.error) {
                   setPassword("");
-                  setCanUpdateEmail(true);
+                  toast({ message: "Invalid password", mode: "error" });
+                  setCanUpdateEmail(false);
+                  return;
+                }
 
-                  await updateEmail();
-                },
-              );
+                setEditingEmail(false);
+                setPassword("");
+                setCanUpdateEmail(true);
 
-              setPasswordVerifyLoading(false);
+                await updateEmail();
+              } catch (error) {
+                console.log(error);
+                setPassword("");
+                toast({
+                  message: "An error occurred verifying your password",
+                  mode: "error",
+                });
+              } finally {
+                setPasswordVerifyLoading(false);
+              }
             }}
           >
             <Input
@@ -294,14 +347,128 @@ export default function AccountSettingsPage() {
           placeholder="Email"
           value={userValues.email?.current}
           handleChange={(e) =>
-            setUserValues({
-              ...userValues,
+            setUserValues((prev) => ({
+              ...prev,
               email: {
-                initial: userValues.email?.initial || "",
+                initial: prev.email?.initial || "",
                 current: e.target.value,
               },
-            })
+            }))
           }
+        />
+      </SettingsBox>
+      <SettingsBox
+        title="Change Password"
+        description="You must enter your current password to change your password."
+        onSettingSubmit={async () => {
+          if (currentPassword == newPassword) {
+            // validate not the same
+            toast({
+              message:
+                "New password cannot be the same as the current password.",
+              mode: "error",
+            });
+            return;
+          }
+
+          // validate password strength
+          if (newPassword.length < 8) {
+            toast({
+              message: "Password must be at least 8 characters.",
+              mode: "error",
+            });
+            return;
+          }
+
+          if (!isValidPassword(newPassword)) {
+            toast({
+              message:
+                "Password must be at least 8 characters with at least one uppercase, lowercase, number, and symbol characters.",
+              mode: "error",
+            });
+            return;
+          }
+
+          if (newPassword !== confirmedNewPassword) {
+            toast({
+              message: "Passwords do not match.",
+              mode: "error",
+            });
+            return;
+          }
+
+          try {
+            const res = await changePassword({
+              oldPassword: currentPassword,
+              newPassword: newPassword,
+              confirmNewPassword: confirmedNewPassword,
+            }).then((r) => r);
+
+            console.log(res.code);
+
+            if (res.error) {
+              toast({
+                message: getErrorMessage(res.code) || "Cannot update password",
+                mode: "error",
+              });
+              return;
+            }
+
+            toast({
+              message: "Password updated successfully",
+              mode: "success",
+            });
+
+            setCurrentPassword("");
+            setNewPassword("");
+            setConfirmedNewPassword("");
+          } catch (err) {
+            console.error("Error changing password:", err);
+            toast({
+              message: "An error occurred while updating password",
+              mode: "error",
+            });
+          }
+        }}
+        note={
+          <>
+            <p>
+              <span>
+                Passwords must be 8+ characters with at least one uppercase,
+                lowercase, number, and symbol characters.
+              </span>
+              <span>
+                {" "}
+                <Link href="/settings/account/password">
+                  <Button variant="link">Forgot Password?</Button>
+                </Link>
+              </span>
+            </p>
+          </>
+        }
+        disabled={
+          currentPassword.length === 0 ||
+          newPassword.length === 0 ||
+          confirmedNewPassword.length === 0
+        }
+      >
+        <Input
+          type="password"
+          placeholder="Current Password"
+          value={currentPassword}
+          handleChange={(e) => setCurrentPassword(e.target.value)}
+        />
+        <Input
+          type="password"
+          placeholder="New Password"
+          value={newPassword}
+          handleChange={(e) => setNewPassword(e.target.value)}
+        />
+        <Input
+          type="password"
+          placeholder="Confirm New Password"
+          value={confirmedNewPassword}
+          handleChange={(e) => setConfirmedNewPassword(e.target.value)}
         />
       </SettingsBox>
       <SettingsBox
@@ -311,11 +478,19 @@ export default function AccountSettingsPage() {
           const formData = new FormData();
           formData.append("avatar", avatar || "");
           await uploadAvatar({ user, formData })
-            .then(() => {
+            .then((res) => {
+              console.log(res);
               toast({
                 message: "Avatar updated.",
                 mode: "success",
               });
+              setUserValues((prev) => ({
+                ...prev,
+                avatar: {
+                  initial: res.location,
+                  current: res.location,
+                },
+              }));
             })
             .catch((error) => {
               console.error(error);
@@ -326,13 +501,61 @@ export default function AccountSettingsPage() {
               });
             });
         }}
-        disabled={!avatar}
+        disabled={
+          !avatar || userValues.avatar?.initial === userValues.avatar?.current
+        }
         note="Square image recommended. Accepted file types: .png, .jpg. Max file size: 2MB."
       >
         <div className="flex pt-2">
           <AvatarUploader
-            handleChange={(e) => setAvatar(e)}
+            handleChange={(e) => {
+              setAvatar(e);
+              setUserValues((prev) => ({
+                ...prev,
+                avatar: {
+                  initial: prev.avatar?.initial || "",
+                  current: URL.createObjectURL(e),
+                },
+              }));
+            }}
             initialAvatar={userValues.avatar?.initial || ""}
+            handleDelete={async () => {
+              if (userValues.avatar?.initial) {
+                await deleteAvatar()
+                  .then((res) => {
+                    if (res == null) {
+                      toast({ message: "Avatar deleted.", mode: "success" });
+
+                      setUserValues((prev) => ({
+                        ...prev,
+                        avatar: {
+                          initial: "",
+                          current: "",
+                        },
+                      }));
+                    } else {
+                      toast({
+                        message: "There was a problem deleting your avatar.",
+                        mode: "error",
+                      });
+                    }
+                  })
+                  .catch((err) => {
+                    toast({
+                      message: "There was a problem deleting your avatar.",
+                      mode: "error",
+                    });
+                  });
+              } else {
+                setUserValues((prev) => ({
+                  ...prev,
+                  avatar: {
+                    initial: "",
+                    current: "",
+                  },
+                }));
+              }
+            }}
           />
         </div>
       </SettingsBox>
