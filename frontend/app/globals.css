@@ -117,11 +117,11 @@ body {
 	}
 
 	h1 {
-		@apply text-2xl font-bold text-typography-strong;
+		@apply text-xl font-bold text-typography-strong;
 	}
 
 	h2 {
-		@apply scroll-m-20 text-3xl font-semibold tracking-tight transition-colors text-typography-strong first:mt-0;
+		@apply scroll-m-20 text-lg font-semibold tracking-tight transition-colors text-typography-strong first:mt-0;
 	}
 
 	p {
@@ -129,7 +129,7 @@ body {
 	}
 
 	a {
-		@apply no-underline transition-effect text-typography-strong hover:opacity-90;
+		@apply underline transition-effect text-typography-strong hover:opacity-90;
 	}
 
 	ul {
