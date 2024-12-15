@@ -23,7 +23,7 @@ export default function LoginPage() {
 			toast({
 				message:
 					'The confirmation link was invalid or has expired. Please login to request a new one.',
-				mode: 'error',
+				mode: 'error'
 			});
 		}
 	}, [searchParams]);
@@ -39,16 +39,16 @@ export default function LoginPage() {
 				{ email, password },
 				{
 					headers: {
-						'Content-Type': 'application/json',
+						'Content-Type': 'application/json'
 					},
-					withCredentials: true,
+					withCredentials: false
 				}
 			);
 
 			if (response.status === 200) {
 				toast({
 					message: 'Logged in successfully',
-					mode: 'success',
+					mode: 'success'
 				});
 				router.push('/dashboard');
 			}
@@ -56,13 +56,13 @@ export default function LoginPage() {
 			if (axios.isAxiosError(error) && error.response) {
 				const apiError = error.response.data as ApiError;
 				toast({
-					message: apiError.error,
-					mode: 'error',
+					message: 'Invalid credentials',
+					mode: 'error'
 				});
 			} else {
 				toast({
 					message: 'An unexpected error occurred',
-					mode: 'error',
+					mode: 'error'
 				});
 			}
 		}
@@ -78,10 +78,10 @@ export default function LoginPage() {
 				className='flex flex-col gap-6'
 			>
 				<Input
-					label='Email'
+					label='Email address'
 					type='email'
 					name='email'
-					placeholder='Email'
+					placeholder='name@company.com'
 					required
 					value={email}
 					handleChange={(e) => setEmail(e.target.value)}
@@ -94,6 +94,14 @@ export default function LoginPage() {
 					required
 					value={password}
 					handleChange={(e) => setPassword(e.target.value)}
+					hint={
+						<Link
+							className='text-xs text-typography-weak'
+							href='/auth/forgot-password'
+						>
+							Forgot password?
+						</Link>
+					}
 				/>
 				<Button
 					className='w-full'
@@ -104,12 +112,14 @@ export default function LoginPage() {
 					Continue with email
 				</Button>
 
-				<p>
-					Don&apos;t have an account? <Link href='/auth/signup'>Sign up</Link>
-				</p>
-				<p>
-					<Link href='/auth/forgot-password'>Forgot password?</Link>
-				</p>
+				<div className='text-center'>
+					<Link
+						className='no-underline'
+						href='/auth/signup'
+					>
+						or sign up instead
+					</Link>
+				</div>
 			</form>
 		</div>
 	);

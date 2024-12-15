@@ -21,18 +21,14 @@ export default function SignupPage() {
 		setIsLoading(true);
 
 		try {
-			const formData = new FormData(e.currentTarget);
-			setEmail(formData.get('email') as string);
-			setPassword(formData.get('password') as string);
-
 			const response = await axios.post(
 				`${process.env.NEXT_PUBLIC_API_URL}/auth/signup`,
 				{ email, password },
 				{
 					headers: {
-						'Content-Type': 'application/json',
+						'Content-Type': 'application/json'
 					},
-					withCredentials: true,
+					withCredentials: false
 				}
 			);
 
@@ -44,12 +40,12 @@ export default function SignupPage() {
 				const apiError = error.response.data as ApiError;
 				toast({
 					message: apiError.error,
-					mode: 'error',
+					mode: 'error'
 				});
 			} else {
 				toast({
 					message: 'An unexpected error occurred',
-					mode: 'error',
+					mode: 'error'
 				});
 			}
 		} finally {
@@ -58,8 +54,11 @@ export default function SignupPage() {
 	}
 
 	return (
-		<div className='flex flex-col gap-4'>
-			<h1>Create your account</h1>
+		<div className='flex flex-col gap-6'>
+			<div className='flex flex-col gap-2'>
+				<h1>Get started with your dashboard</h1>
+				<p>Free for 14 days &mdash; no credit card required.</p>
+			</div>
 			<form
 				onSubmit={handleSubmit}
 				className='flex flex-col gap-6'
@@ -67,10 +66,10 @@ export default function SignupPage() {
 				<Input
 					value={email}
 					handleChange={(e) => setEmail(e.target.value)}
-					label='Email'
+					label='Work email address'
 					type='email'
 					name='email'
-					placeholder='Email'
+					placeholder='name@company.com'
 					required
 				/>
 				<Input
@@ -79,7 +78,7 @@ export default function SignupPage() {
 					label='Password'
 					type='password'
 					name='password'
-					placeholder='Password'
+					placeholder='Minimum 8 characters, make it strong'
 					required
 				/>
 				<Button
@@ -87,17 +86,17 @@ export default function SignupPage() {
 					type='submit'
 					disabled={isLoading || !email || !password}
 				>
-					{isLoading ? 'Loading...' : 'Continue with email'}
+					{isLoading ? 'Loading...' : 'Start for free'}
 				</Button>
-				<p>
-					By signing up, you agree to our{' '}
-					<Link href='/legal/terms'>Terms of Service</Link> and{' '}
-					<Link href='/legal/privacy'>Privacy Policy</Link>.
-				</p>
-				<Divider className='max-w-[20px]' />
-				<p>
-					Already have an account? <Link href='/auth/login'>Login</Link>
-				</p>
+
+				<div className='text-center'>
+					<Link
+						className='no-underline'
+						href='/auth/login'
+					>
+						or login instead
+					</Link>
+				</div>
 			</form>
 		</div>
 	);
