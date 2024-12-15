@@ -5,9 +5,6 @@ import { cookies } from 'next/headers';
 
 export async function handleResendEmail() {
 	'use server';
-	const cookieStore = cookies();
-	const authToken = cookieStore.get('auth-token')?.value;
-	console.log(`auth-token=${authToken}`);
 
 	try {
 		const response = await axios.post(
@@ -16,8 +13,8 @@ export async function handleResendEmail() {
 			{
 				withCredentials: true,
 				headers: {
-					Cookie: `auth-token=${cookies().get('auth-token')?.value}`,
-				},
+					Cookie: `auth-token=${cookies().get('auth-token')?.value}`
+				}
 			}
 		);
 		return response.data;
