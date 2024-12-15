@@ -14,6 +14,9 @@ export const errorCodes = {
   old_password_invalid: "Old password is incorrect.",
   password_unchanged: "New password must be different.",
   new_password_mismatch: "New passwords do not match.",
+  internal_server_error:
+    "An unexpected error occurred. Please try again or contact support if the issue persists.",
+  email_not_provided: "A valid email address is required.",
   default: DEFAULT_ERROR_MESSAGE,
 } as const;
 
@@ -21,6 +24,9 @@ export const responseCodes = {
   password_verified: "Password verified.",
   email_updated: "Email successfully updated.",
   email_confirmed: "Email confirmed.",
+  password_changed: "Password changed successfully!",
+  password_reset_sent:
+    "You'll receive an email if your are registered in our system.",
   default: DEFAULT_RESPONSE_MESSAGE,
 } as const;
 
