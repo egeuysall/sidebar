@@ -57,8 +57,7 @@ func (s *PostgresStore) CreateUser(user *models.User) error {
 }
 
 func (s *PostgresStore) UpdateUser(user *models.User) error {
-	result := s.db.Model(user).Updates(user)
-	return result.Error
+	return s.db.Model(user).Select("*").Updates(user).Error // explicitly tell gorm to update with zero values
 }
 
 func (s *PostgresStore) GetUserByID(id uuid.UUID) (*models.User, error) {
@@ -98,3 +97,9 @@ func (s *PostgresStore) DeleteUserByID(id uuid.UUID) error {
 	result := s.db.Delete(&models.User{}, id)
 	return result.Error
 }
+
+//func (s *PostgresStore) GetAPITokensByUserID(id uuid.UUID) ([]*models.APIToken, error) {
+//	var tokens []*models.APIToken
+//	result := s.db.Where("user_id = ?", id).Find(&tokens)
+//	return tokens, result.Error
+//}
