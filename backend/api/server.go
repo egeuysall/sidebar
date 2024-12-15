@@ -30,9 +30,9 @@ type Error struct {
 }
 
 type Response struct {
-	Message string `json:"message"`
-	Data    string `json:"data"`
-	Code    string `json:"code,omitempty"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data"`
+	Code    string      `json:"code,omitempty"`
 }
 
 type apiFunc func(http.ResponseWriter, *http.Request) error
@@ -68,6 +68,8 @@ func (s *Server) Start() error {
 		r.Post("/login", makeHttpHandleFunc(s.handleLogin))
 		r.Post("/logout", makeHttpHandleFunc(s.handleLogout))
 		r.Post("/confirm", makeHttpHandleFunc(s.handleConfirmEmailToken))
+		r.Post("/forgot-password", makeHttpHandleFunc(s.handleForgotPassword))
+		r.Post("/change-password", makeHttpHandleFunc(s.handleChangePassword))
 	})
 
 	r.Route("/tokens", func(r chi.Router) {
@@ -101,10 +103,12 @@ func (s *Server) Start() error {
 		r.Use(middleware.VerifyAuth)
 		r.Route("/users", func(r chi.Router) {
 			r.Patch("/", makeHttpHandleFunc(s.handleUpdateUser))
+			r.Delete("/", makeHttpHandleFunc(s.handleDeleteUser))
 			r.Patch("/email", makeHttpHandleFunc(s.handleUpdateUserEmail))
 			r.Post("/resend-email", makeHttpHandleFunc(s.handleResendUpdateEmail))
-			r.Delete("/", makeHttpHandleFunc(s.handleDeleteUser))
 			r.Patch("/avatar", makeHttpHandleFunc(s.handleUploadAvatar))
+			r.Delete("/avatar", makeHttpHandleFunc(s.handleDeleteAvatar))
+			r.Patch("/change-password", makeHttpHandleFunc(s.handleChangeUserPassword))
 		})
 	})
 
@@ -560,7 +564,10 @@ func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request)
 	})
 
 	if err != nil {
-		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid token", Error: err.Error()})
+		if token.Claims.(jwt.MapClaims)["type"] == "email_update_confirmation" {
+			return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid token", Error: err.Error(), Code: "invalid_update_token"})
+		}
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid token", Error: err.Error(), Code: "invalid_token"})
 	}
 
 	userId, ok := token.Claims.(jwt.MapClaims)["user_id"]
@@ -590,10 +597,20 @@ func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request)
 
 	now := time.Now()
 
+	// specify redirect url
+	redirectUrl := fmt.Sprintf("%s/dashboard?message=email_confirmed", os.Getenv("APP_URL"))
+
+	// specify success message/code
+	successMessage := "email confirmed successfully."
+	successCode := "email_confirmed"
+
 	if user.UpdatedEmail != "" {
 		user.Email = user.UpdatedEmail
 		user.UpdatedEmail = ""
 		user.UpdatedEmailConfirmedAt = &now
+		redirectUrl = fmt.Sprintf("%s/settings/account?message=email_updated", os.Getenv("APP_URL"))
+		successMessage = "email updated successfully."
+		successCode = "email_updated"
 	} else {
 		user.EmailConfirmedAt = &now
 	}
@@ -624,12 +641,12 @@ func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request)
 
 	cookies := w.Header()["Set-Cookie"]
 	if len(cookies) == 0 {
-		fmt.Println("Warning: No cookies were set in the response headers")
+		fmt.Println("warning: no cookies were set in the response headers")
 	} else {
-		fmt.Println("Cookies set in response headers:", cookies)
+		fmt.Println("cookies set in response headers:", cookies)
 	}
 
-	return WriteJSON(w, http.StatusOK, map[string]any{"message": "email confirmed"})
+	return WriteJSON(w, http.StatusOK, Response{Message: successMessage, Code: successCode, Data: map[string]string{"redirect_url": redirectUrl}})
 }
 
 func (s *Server) handleVerifyPassword(w http.ResponseWriter, r *http.Request) error {
@@ -646,10 +663,10 @@ func (s *Server) handleVerifyPassword(w http.ResponseWriter, r *http.Request) er
 
 	passwordMatches := comparePasswords(user.HashedPassword, verifyPasswordRequest.Password)
 	if !passwordMatches {
-		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid credentials", Error: "invalid password", Code: "password_not_verified"})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid credentials", Error: "invalid password", Code: "invalid_password"})
 	}
 
-	resetEmailToken, err := generateToken(&user, "reset_email")
+	resetEmailToken, err := generateToken(user, "reset_email")
 	if err != nil {
 		return err
 	}
@@ -667,6 +684,51 @@ func (s *Server) handleVerifyPassword(w http.ResponseWriter, r *http.Request) er
 	return WriteJSON(w, http.StatusOK, Response{Message: "password verified", Code: "password_verified"})
 }
 
+func (s *Server) handleForgotPassword(w http.ResponseWriter, r *http.Request) error {
+	// validate email
+	forgotPasswordRequest := new(models.ForgotPasswordRequest)
+	if err := json.NewDecoder(r.Body).Decode(forgotPasswordRequest); err != nil {
+		return WriteJSON(w, http.StatusBadRequest, Response{Message: "empty body.", Code: "empty_body"})
+	}
+
+	email := forgotPasswordRequest.Email
+
+	if email == "" || !util.ValidateEmail(email) {
+		return WriteJSON(w, http.StatusBadRequest, Response{Message: "a valid email is required.", Code: "email_not_provided"})
+	}
+
+	// check if email exists in system
+	emailExists, err := s.store.GetUserByEmail(email)
+
+	if emailExists == nil {
+		return WriteJSON(w, http.StatusOK, Response{Message: "password reset link sent.", Code: "password_reset_sent"})
+	}
+
+	if err != nil {
+		return WriteJSON(w, http.StatusOK, Error{Error: "internal server error.", Code: "internal_server_error"})
+	}
+
+	// generate forgot password token
+
+	// send email
+
+	return WriteJSON(w, http.StatusOK, Response{Message: "password reset link sent.", Code: "password_reset_sent"})
+}
+
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) error {
+	// validate token
+
+	// validate passwords exists
+
+	// validate passwords match
+
+	// validate password strength
+
+	// validate password is not the same as existing
+
+	return WriteJSON(w, http.StatusOK, Response{Message: "password changed.", Code: "password_changed"})
+}
+
 func hashAndSaltPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -680,7 +742,7 @@ func comparePasswords(hashedPassword, password string) bool {
 }
 
 func generateToken(user *models.User, tokenType string) (string, error) {
-	if tokenType != "auth" && tokenType != "refresh" && tokenType != "reset_password" && tokenType != "forgot_password" && tokenType != "email_confirmation" && tokenType != "email_resend" && tokenType != "reset_email" {
+	if tokenType != "auth" && tokenType != "refresh" && tokenType != "reset_password" && tokenType != "forgot_password" && tokenType != "email_confirmation" && tokenType != "email_resend" && tokenType != "reset_email" && tokenType != "email_update_confirmation" {
 		return "", fmt.Errorf("invalid token type")
 	}
 
@@ -711,54 +773,46 @@ func generateToken(user *models.User, tokenType string) (string, error) {
 	return signedAuthToken, nil
 }
 
-func getUserIdentity(s *Server, r *http.Request) (user models.User, authType string, err error) {
+func getUserIdentity(s *Server, r *http.Request) (user *models.User, authType string, err error) {
 	if s == nil || r == nil {
-		return models.User{}, "", fmt.Errorf("both server and request not provided")
+		return nil, "", fmt.Errorf("both server and request not provided")
 	}
 
-	// check for auth token
 	authToken, e := r.Cookie("auth-token")
 	apiKey := r.Header.Get("X-API-KEY")
 
-	// no auth token or api key
+	// require either auth token or api key
 	if apiKey == "" && e != nil {
-		return models.User{}, "", e
+		return nil, "", e
 	}
 
-	// verify auth token
+	// handle auth token authentication
 	if authToken != nil {
 		userId, authTokenType, e := util.ParseJWT(authToken.Value)
-
-		// bad auth token, no api key
 		if e != nil && apiKey == "" {
-			return models.User{}, "", e
+			return nil, "", e
 		}
 
 		if userId != "" && authTokenType == "auth" {
 			user, err := s.store.GetUserByID(uuid.MustParse(userId))
-
-			// user doesn't exist, no api key
 			if err != nil && apiKey == "" {
-				return models.User{}, "", err
+				return nil, "", err
 			}
-
 			if user == nil && apiKey == "" {
-				return models.User{}, "", fmt.Errorf("invalid user")
+				return nil, "", fmt.Errorf("invalid user")
 			}
-
-			// return user object
 			if user != nil {
-				return *user, "authToken", nil
+				return user, "authToken", nil
 			}
-		}
-
-		// TODO: implement identity for api key
-		if apiKey != "" {
-			return models.User{}, "", fmt.Errorf("identity not implemented for api keys")
 		}
 	}
 
-	return models.User{}, "", nil
+	// handle api key authentication
+	if apiKey != "" {
+		return nil, "", fmt.Errorf("identity not implemented for api keys")
+	}
+
+	return nil, "", fmt.Errorf("no valid authentication method")
 }
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) error {
@@ -812,7 +866,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) error 
 	user.FirstName = updateUserReq.FirstName
 	user.LastName = updateUserReq.LastName
 
-	if err := s.store.UpdateUser(&user); err != nil {
+	if err := s.store.UpdateUser(user); err != nil {
 		return err
 	}
 
@@ -827,13 +881,21 @@ func (s *Server) handleUpdateUserEmail(w http.ResponseWriter, r *http.Request) e
 
 	resetEmailToken, err := r.Cookie("reset-email-token")
 	if err != nil {
-		return WriteJSON(w, http.StatusForbidden, Error{Message: "forbidden", Error: "token is invalid or expired", Code: "invalid_token"})
+		http.SetCookie(w, &http.Cookie{
+			Name:     "email-update-token",
+			Value:    "",
+			Path:     "/",
+			Expires:  time.Unix(0, 0),
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+		})
+		return WriteJSON(w, http.StatusForbidden, Error{Message: "forbidden", Error: "token is invalid or expired", Code: "invalid_update_token"})
 	}
 
 	userId, authTokenType, err := util.ParseJWT(resetEmailToken.Value)
 
 	if err != nil {
-		return WriteJSON(w, http.StatusForbidden, Error{Message: "forbidden", Error: "token is invalid or expired", Code: "invalid_token"})
+		return WriteJSON(w, http.StatusForbidden, Error{Message: "forbidden", Error: "token is invalid or expired", Code: "invalid_update_token"})
 	}
 
 	if uuid.MustParse(userId) != user.ID {
@@ -841,7 +903,7 @@ func (s *Server) handleUpdateUserEmail(w http.ResponseWriter, r *http.Request) e
 	}
 
 	if authTokenType != "reset_email" {
-		return WriteJSON(w, http.StatusForbidden, Error{Message: "forbidden", Error: "token is invalid or expired", Code: "invalid_token"})
+		return WriteJSON(w, http.StatusForbidden, Error{Message: "forbidden", Error: "token is invalid or expired", Code: "invalid_update_token"})
 	}
 
 	updateUserEmailReq := new(models.UpdateUserEmailRequest)
@@ -864,12 +926,12 @@ func (s *Server) handleUpdateUserEmail(w http.ResponseWriter, r *http.Request) e
 	now := time.Now()
 	user.UpdatedEmailAt = &now
 
-	if err := s.store.UpdateUser(&user); err != nil {
+	if err := s.store.UpdateUser(user); err != nil {
 		return err
 	}
 
 	// send email confirmation
-	emailConfirmationToken, err := generateToken(&user, "email_confirmation")
+	emailConfirmationToken, err := generateToken(user, "email_update_confirmation")
 	if err != nil {
 		return err
 	}
@@ -884,7 +946,7 @@ func (s *Server) handleUpdateUserEmail(w http.ResponseWriter, r *http.Request) e
 	}
 
 	// send notice to current email
-	err = util.SendEmail(user.Email, "Security Notice: Email Change Request Initiated", fmt.Sprintf("Someone requested to change your email to %s. If this was you, you can safely ignore this email. If it wasn't, please contact support immediately.", confirmationUrl))
+	err = util.SendEmail(user.Email, "Security Notice: Email Change Request Initiated", fmt.Sprintf("Someone requested to change your email to %s. If this was you, you can safely ignore this email. If it wasn't, please contact support immediately.", user.UpdatedEmail))
 	if err != nil {
 		fmt.Printf("Error sending email: %v\n", err)
 		return err
@@ -900,17 +962,40 @@ func (s *Server) handleUpdateUserEmail(w http.ResponseWriter, r *http.Request) e
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	return WriteJSON(w, http.StatusOK, map[string]any{"message": "email update requested", "updated_email": user.UpdatedEmail, "email": user.Email})
+	return WriteJSON(w, http.StatusOK, Response{Message: "email update requested", Data: map[string]string{"updated_email": user.UpdatedEmail, "email": user.Email}})
 }
 
 func (s *Server) handleResendUpdateEmail(w http.ResponseWriter, r *http.Request) error {
 	// check that user has outstanding email update request
+	user, _, err := getUserIdentity(s, r)
+
+	if err != nil {
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "token is invalid or expired.", Error: "unauthorized.", Code: "unauthorized"})
+	}
 
 	// get updated email
+	updatedEmail := user.UpdatedEmail
+
+	if updatedEmail == "" {
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "cannot resend email.", Error: "no outstanding update request.", Code: "unauthorized"})
+	}
 
 	// send email
+	emailConfirmationToken, err := generateToken(user, "email_update_confirmation")
+	if err != nil {
+		return WriteJSON(w, http.StatusInternalServerError, Error{Message: "there was a problem resending the confirmation email.", Error: "internal server error.", Code: "internal_server_error"})
+	}
 
-	return WriteJSON(w, http.StatusOK, map[string]any{"message": "email sent"})
+	confirmationUrl := fmt.Sprintf("%s/auth/confirm?token=%s", os.Getenv("APP_URL"), emailConfirmationToken)
+
+	// send confirmation to new email
+	err = util.SendEmail(user.UpdatedEmail, "Confirm your new email", fmt.Sprintf("Please confirm your email by clicking <a href=\"%s\">here</a>", confirmationUrl))
+	if err != nil {
+		fmt.Printf("Error sending email: %v\n", err)
+		return err
+	}
+
+	return WriteJSON(w, http.StatusOK, Response{Message: "email sent.", Code: "email_sent"})
 }
 
 func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) error {
@@ -957,12 +1042,39 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) erro
 		return WriteJSON(w, http.StatusBadRequest, Error{Message: "file too large", Error: "file too large"})
 	}
 
-	filename, _, err := util.UploadFileToS3(buf)
+	// delete existing avatar from S3
+	user, _, err := getUserIdentity(s, r)
+	if err != nil {
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: err.Error()})
+	}
+
+	avatarUrl := user.AvatarUrl
+	avatarThumbUrl := user.AvatarThumbnailUrl
+
+	if avatarUrl != "" {
+		err = util.DeleteFileFromS3(avatarUrl)
+
+		if err != nil {
+			return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: err.Error()})
+		}
+	}
+
+	if avatarThumbUrl != "" {
+		err = util.DeleteFileFromS3(avatarThumbUrl)
+
+		if err != nil {
+			return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: err.Error()})
+		}
+	}
+
+	// upload new avatar to s3
+	filename, thumbFilename, err := util.UploadFileToS3(buf, true)
 	if err != nil {
 		return err
 	}
 
 	cloudfrontUrl := fmt.Sprintf("%s/%s", os.Getenv("CLOUDFRONT_URL"), filename)
+	thumbCloudfrontUrl := fmt.Sprintf("%s/%s", os.Getenv("CLOUDFRONT_URL"), thumbFilename)
 
 	authToken, err := r.Cookie("auth-token")
 
@@ -980,18 +1092,154 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) erro
 		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "token is invalid.", Error: "incorrect token type", Code: "invalid_token"})
 	}
 
-	user, err := s.store.GetUserByID(uuid.MustParse(userId))
+	user, err = s.store.GetUserByID(uuid.MustParse(userId))
 	if err != nil {
 		return WriteJSON(w, http.StatusNotFound, Error{Message: "user not found", Error: err.Error()})
 	}
 
 	user.AvatarUrl = cloudfrontUrl
+	user.AvatarThumbnailUrl = thumbCloudfrontUrl
 
 	if err := s.store.UpdateUser(user); err != nil {
 		return err
 	}
 
 	return WriteJSON(w, http.StatusOK, map[string]any{"location": cloudfrontUrl, "file_type": fileType})
+}
+
+func (s *Server) handleDeleteAvatar(w http.ResponseWriter, r *http.Request) error {
+	user, _, err := getUserIdentity(s, r)
+
+	if err != nil {
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: err.Error()})
+	}
+
+	avatarUrl := user.AvatarUrl
+
+	avatarThumbUrl := user.AvatarThumbnailUrl
+
+	if avatarUrl == "" && avatarThumbUrl == "" {
+		return WriteJSON(w, http.StatusNoContent, nil)
+	}
+
+	if avatarThumbUrl == "" {
+		err = util.DeleteFileFromS3(avatarUrl)
+
+		if err != nil {
+			return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: err.Error()})
+		}
+	}
+
+	if avatarUrl == "" {
+		err = util.DeleteFileFromS3(avatarThumbUrl)
+
+		if err != nil {
+			return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: err.Error()})
+		}
+	}
+
+	if avatarUrl != "" && avatarThumbUrl != "" {
+		err = util.DeleteFileFromS3(avatarUrl)
+
+		if err != nil {
+			return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: err.Error()})
+		}
+
+		err = util.DeleteFileFromS3(avatarThumbUrl)
+
+		if err != nil {
+			return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: err.Error()})
+		}
+	}
+
+	user.AvatarUrl = ""
+	user.AvatarThumbnailUrl = ""
+
+	if err := s.store.UpdateUser(user); err != nil {
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: err.Error()})
+	}
+
+	return WriteJSON(w, http.StatusNoContent, nil)
+}
+
+func (s *Server) handleChangeUserPassword(w http.ResponseWriter, r *http.Request) error {
+	user, _, err := getUserIdentity(s, r)
+
+	if err != nil {
+		return WriteJSON(w, http.StatusUnauthorized, Error{Error: "token is invalid or expired", Code: "bad_token"})
+	}
+
+	// validate input
+	changePasswordReq := new(models.ChangeUserPasswordRequest)
+	if err := json.NewDecoder(r.Body).Decode(changePasswordReq); err != nil {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "old password, new password, and confirmed new password are required.", Code: "invalid_input"})
+	}
+
+	// validate current password
+	oldPassword := changePasswordReq.OldPassword
+	newPassword := changePasswordReq.NewPassword
+	confirmNewPassword := changePasswordReq.ConfirmNewPassword
+
+	if oldPassword == "" || newPassword == "" || confirmNewPassword == "" {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "old password, new password, and confirmed new password are required.", Code: "invalid_input"})
+	}
+
+	oldPasswordMatches := comparePasswords(user.HashedPassword, oldPassword)
+
+	if !oldPasswordMatches {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "old password does not match.", Code: "old_password_invalid"})
+	}
+
+	// validate new password is not same
+	passwordUnchanged := comparePasswords(user.HashedPassword, newPassword)
+
+	if passwordUnchanged {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "new password cannot be the same.", Code: "password_unchanged"})
+	}
+
+	// validate new and confirmed password are the same
+	newPasswordMatches := newPassword == confirmNewPassword
+
+	if !newPasswordMatches {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "new passwords do not match.", Code: "new_password_mismatch"})
+	}
+
+	// validate new password is strong
+	eightOrMore, number, upper, special := util.ValidatePassword(changePasswordReq.NewPassword)
+
+	var errorMessages []string
+	if !eightOrMore {
+		errorMessages = append(errorMessages, "be at least 8 characters long")
+	}
+	if !number {
+		errorMessages = append(errorMessages, "contain at least one number")
+	}
+	if !upper {
+		errorMessages = append(errorMessages, "contain at least one uppercase letter")
+	}
+	if !special {
+		errorMessages = append(errorMessages, "contain at least one special character")
+	}
+
+	if len(errorMessages) > 0 {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: strings.Join(errorMessages, ","), Code: "weak_password"})
+	}
+
+	hashedPassword, err := hashAndSaltPassword(changePasswordReq.NewPassword)
+
+	if err != nil {
+		return WriteJSON(w, http.StatusInternalServerError, Error{Error: "internal server error.", Code: "server_error"})
+	}
+
+	user.HashedPassword = hashedPassword
+
+	if err := s.store.UpdateUser(user); err != nil {
+		fmt.Printf("error updating user with new password: %s\n", err)
+
+		return WriteJSON(w, http.StatusInternalServerError, Error{Error: "internal server error.", Code: "server_error"})
+	}
+
+	return WriteJSON(w, http.StatusOK, Response{Message: "password changed successfully.", Code: "password_changed"})
 }
 
 func (s *Server) handleGetAllTokens(w http.ResponseWriter, r *http.Request) error {
@@ -1022,9 +1270,52 @@ func (s *Server) handleGetAllTokens(w http.ResponseWriter, r *http.Request) erro
 }
 
 func WriteJSON(w http.ResponseWriter, status int, v any) error {
+	if status == http.StatusNoContent {
+		w.WriteHeader(status)
+		return nil
+	}
+
+	// Handle error case with null message
+	if err, ok := v.(Error); ok {
+		if err.Message == "" {
+			v = Error{Error: err.Error, Code: err.Code}
+		} else {
+			v = Error{Message: err.Message, Error: err.Error, Code: err.Code}
+		}
+	} else if resp, ok := v.(Response); ok {
+		// Only include data if it's not nil and not empty
+		if resp.Data == nil || isEmptyData(resp.Data) {
+			// Create new response without data field
+			v = struct {
+				Message string `json:"message,omitempty"`
+				Code    string `json:"code,omitempty"`
+			}{
+				Message: resp.Message,
+				Code:    resp.Code,
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status) // this needs to be after setting content type
+	w.WriteHeader(status)
+
 	return json.NewEncoder(w).Encode(v)
+}
+
+// Helper function to check if data is empty
+func isEmptyData(data interface{}) bool {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		return len(v) == 0
+	case []interface{}:
+		return len(v) == 0
+	case string:
+		return v == ""
+	case nil:
+		return true
+	default:
+		return false
+	}
 }
 
 func makeHttpHandleFunc(f apiFunc) http.HandlerFunc {
