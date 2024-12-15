@@ -1,9 +1,19 @@
+import withMdx from '@next/mdx';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  poweredByHeader: false,
-  images: {
-    domains: ["d2eu2jqkbj4sko.cloudfront.net"],
-  },
+	poweredByHeader: false,
+	pageExtensions: ['js', 'jsx', 'mdx', 'ts', 'tsx'],
+	images: {
+		domains: ['d2eu2jqkbj4sko.cloudfront.net']
+	}
 };
 
-export default nextConfig;
+const withMDX = withMdx({
+	options: {
+		remarkPlugins: [],
+		rehypePlugins: []
+	}
+});
+
+export default withMDX(nextConfig);
