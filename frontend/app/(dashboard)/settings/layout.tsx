@@ -5,12 +5,12 @@ import {
 	PersonIcon,
 	ReaderIcon,
 	BellIcon,
-	ChevronLeftIcon,
+	ChevronLeftIcon
 } from '@radix-ui/react-icons';
 import { WebhookIcon, KeyIcon } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 export default function SettingsLayout({
-	children,
+	children
 }: {
 	children: React.ReactNode;
 }) {
@@ -19,39 +19,37 @@ export default function SettingsLayout({
 			id: 'account',
 			label: 'Account',
 			href: '/settings/account',
-			icon: <PersonIcon className='w-4 h-4' />,
+			icon: <PersonIcon className='w-4 h-4' />
 		},
 		{
 			id: 'billing',
 			label: 'Billing',
 			href: '/settings/billing',
-			icon: <ReaderIcon className='w-4 h-4' />,
+			icon: <ReaderIcon className='w-4 h-4' />
 		},
 		{
 			id: 'notifications',
 			label: 'Notifications',
 			href: '/settings/notifications',
-			icon: <BellIcon className='w-4 h-4' />,
+			icon: <BellIcon className='w-4 h-4' />
 		},
 		{
 			id: 'integrations',
 			label: 'Integrations',
 			href: '/settings/integrations',
-			icon: <WebhookIcon className='w-4 h-4' />,
+			icon: <WebhookIcon className='w-4 h-4' />
 		},
 		{
 			id: 'tokens',
 			label: 'API Keys',
 			href: '/settings/tokens',
-			icon: <KeyIcon className='w-4 h-4' />,
-		},
+			icon: <KeyIcon className='w-4 h-4' />
+		}
 	];
 
 	const pathname = usePathname();
 
 	const selectedLink = links.find((link) => link.href === pathname);
-
-	console.log(selectedLink);
 
 	return (
 		<div className='flex gap-6 w-full h-full flex-grow'>
