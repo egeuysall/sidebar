@@ -20,6 +20,22 @@ type UpdateUserEmailRequest struct {
 	Email string `json:"email"`
 }
 
+type ChangeUserPasswordRequest struct {
+	OldPassword        string `json:"old_password"`
+	NewPassword        string `json:"new_password"`
+	ConfirmNewPassword string `json:"confirm_new_password"`
+}
+
+type ForgotPasswordRequest struct {
+	Email string `json:"email"`
+}
+
+type ChangePasswordRequest struct {
+	Password        string `json:"password"`
+	ConfirmPassword string `json:"confirm_password"`
+	Token           string `json:"token"`
+}
+
 type User struct {
 	ID                      uuid.UUID  `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
 	FirstName               string     `gorm:"" json:"first_name"`
@@ -34,6 +50,7 @@ type User struct {
 	EmailConfirmedAt        *time.Time `gorm:"default:null" json:"email_confirmed_at"`
 	IsAdmin                 bool       `gorm:"default:false" json:"is_admin"`
 	AvatarUrl               string     `gorm:"default:null" json:"avatar_url"`
+	AvatarThumbnailUrl      string     `gorm:"default:null" json:"avatar_thumbnail_url"`
 }
 
 type UserIdentityResponse struct {
