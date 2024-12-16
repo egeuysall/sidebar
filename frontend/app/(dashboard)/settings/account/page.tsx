@@ -23,6 +23,7 @@ import Link from "next/link";
 import { isValidPassword } from "@/lib/validation";
 import { useSearchParams } from "next/navigation";
 import { getErrorMessage, getResponseMessage } from "@/messages";
+import { useRouter } from "next/navigation";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 
@@ -34,6 +35,8 @@ export default function AccountSettingsPage() {
   const [password, setPassword] = useState("");
   const [passwordVerifyLoading, setPasswordVerifyLoading] = useState(false);
   const [canUpdateEmail, setCanUpdateEmail] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
   const emailForm = useRef<HTMLFormElement>(null);
 
   const [userValues, setUserValues] = useState<{
@@ -50,6 +53,8 @@ export default function AccountSettingsPage() {
 
   const searchParams = useSearchParams();
   const message = searchParams.get("message");
+
+  const router = useRouter();
 
   const getUser = useCallback(async () => {
     const user = await axios
@@ -439,9 +444,7 @@ export default function AccountSettingsPage() {
               </span>
               <span>
                 {" "}
-                <Link href="/settings/account/password">
-                  <Button variant="link">Forgot Password?</Button>
-                </Link>
+                <Link href="/auth/forgot-password">Forgot Password?</Link>
               </span>
             </p>
           </>
@@ -558,6 +561,82 @@ export default function AccountSettingsPage() {
             }}
           />
         </div>
+      </SettingsBox>
+      <SettingsBox
+        submitText="Delete Account"
+        disabled={false}
+        variant="destructive"
+        title="Delete Account"
+        description="Permanently delete your account and all associated data. This action cannot be undone - please proceed with caution."
+        onSettingSubmit={async () => {
+          setShowDeleteModal(true);
+        }}
+      >
+        <Modal
+          title="Confirm Delete"
+          hint={
+            <span className="text-sm font-bold uppercase text-error">
+              Danger Zone
+            </span>
+          }
+          open={showDeleteModal}
+          setOpen={setShowDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+        >
+          <form
+            className="flex flex-col gap-4 py-2"
+            onSubmit={async (e) => {
+              e.preventDefault();
+
+              await axios
+                .delete(`${apiUrl}/users`, {
+                  data: { password: deletePassword },
+                  withCredentials: true,
+                })
+                .then((res) => {
+                  toast({
+                    message: "Account deleted.",
+                    mode: "success",
+                  });
+                  router.push("/auth/login");
+                })
+                .catch((err) => {
+                  toast({
+                    message: getErrorMessage(err.response.data.code),
+                    mode: "error",
+                  });
+                });
+            }}
+          >
+            <p>Are you sure you want to delete your account?</p>
+            <p>
+              This action is irreversible. All associated data will be
+              permanently deleted.
+            </p>
+            <p>
+              If you&apos;re sure you want to continue, please type in your
+              password to confirm.
+            </p>
+            <Input
+              type="password"
+              placeholder="Enter your password"
+              label="Confirm password"
+              value={deletePassword}
+              handleChange={(e) => setDeletePassword(e.target.value)}
+            />
+            <Button
+              disabled={deletePassword.length === 0}
+              type="submit"
+              className="w-full"
+              variant="destructive"
+            >
+              Request Permanent Account Deletion
+            </Button>
+            <span className="text-low-contrast-text text-sm">
+              This will delete your account and all associated data.
+            </span>
+          </form>
+        </Modal>
       </SettingsBox>
     </>
   );
