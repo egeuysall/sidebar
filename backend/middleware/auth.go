@@ -16,8 +16,9 @@ func VerifyAuth(next http.Handler) http.Handler {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{
-				"error": "unauthorized",
-				"message": "missing token",
+				"error":   "missing token",
+				"message": "unauthorized",
+				"code":    "missing_token",
 			})
 			return
 		}
@@ -27,8 +28,9 @@ func VerifyAuth(next http.Handler) http.Handler {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{
-				"error": "unauthorized",
-				"message": "token invalid or expired",
+				"error":   "token invalid or expired",
+				"message": "unauthorized",
+				"code":    "invalid_token",
 			})
 			return
 		}
