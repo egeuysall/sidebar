@@ -1,27 +1,28 @@
-import { ForwardedRef, useState } from "react";
+import { ForwardedRef, forwardRef, useState } from "react";
 import Button from "@/components/ui/button";
 
-function SettingsBox({
-  variant = "default",
-  title = "Your Name",
-  description = "This will be your display name on Dashboard MVP",
-  note,
-  disabled = true,
-  onSettingSubmit,
-  children,
-  submitText = "Save Changes",
-  ref,
-}: {
-  variant?: string;
-  title?: string;
-  description?: string;
-  note?: string | JSX.Element;
-  disabled?: boolean;
-  onSettingSubmit: () => Promise<void>;
-  children?: React.ReactNode;
-  submitText?: string;
-  ref?: ForwardedRef<HTMLFormElement>;
-}) {
+const SettingsBox = forwardRef(function SettingsBox(
+  {
+    variant = "default",
+    title = "Your Name",
+    description = "This will be your display name on Dashboard MVP",
+    note,
+    disabled = true,
+    onSettingSubmit,
+    children,
+    submitText = "Save Changes",
+  }: {
+    variant?: string;
+    title?: string;
+    description?: string;
+    note?: string | JSX.Element;
+    disabled?: boolean;
+    onSettingSubmit: () => Promise<void>;
+    children?: React.ReactNode;
+    submitText?: string;
+  },
+  ref: ForwardedRef<HTMLFormElement>,
+) {
   // const { isSubmitting } = useLastSubmit();
   const [disableSubmit, setDisableSubmit] = useState(false);
 
@@ -39,37 +40,36 @@ function SettingsBox({
 
         setDisableSubmit(true);
 
-        console.log(onSettingSubmit, typeof onSettingSubmit);
-
         await onSettingSubmit()
           .then(() => {
             setDisableSubmit(false);
           })
-          .catch((err) => {
-            console.error(err);
+          .catch(() => {
             setDisableSubmit(false);
           });
       }}
-      className={`flex flex-col border  ${
+      className={`flex flex-col border ${
         variant === "destructive"
           ? "border-error-stroke-weak"
           : "border-stroke-weak"
-      } rounded-md gap-2 w-full max-w-4xl`}
+      } w-full max-w-4xl gap-2 rounded-md`}
     >
-      <div className="flex flex-col py-6 px-8 gap-4">
+      <div className="flex flex-col gap-4 px-8 py-6">
         <div className="flex flex-col gap-4">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <p className="text-sm text-gray">{description}</p>
+          <p className="text-gray text-sm">{description}</p>
         </div>
         {children}
       </div>
 
       <div
-        className={`flex justify-between gap-8 items-center rounded-b-md px-8 py-6 ${
-          variant === "destructive" ? "bg-light-red-bg" : "bg-fill"
+        className={`flex items-center justify-between gap-8 rounded-b-md px-8 py-6 ${
+          variant === "destructive"
+            ? "border-t border-error-stroke-weak"
+            : "bg-fill"
         }`}
       >
-        <div className="text-sm text-low-contrast-text">{note}</div>
+        <div className="text-low-contrast-text text-sm">{note}</div>
 
         <Button
           variant={variant === "destructive" ? "destructive" : ""}
@@ -82,6 +82,6 @@ function SettingsBox({
       </div>
     </form>
   );
-}
+});
 
 export default SettingsBox;
