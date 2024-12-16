@@ -8,12 +8,16 @@ export default function Modal({
   children,
   onClose = () => {},
   title,
+  hint,
+  canClose = true,
 }: {
   open?: boolean;
   setOpen?: (open: boolean) => void;
   children?: React.ReactNode;
   onClose?: () => void;
   title?: string;
+  hint?: React.ReactNode;
+  canClose?: boolean;
 }) {
   const handleClose = () => {
     onClose();
@@ -21,31 +25,34 @@ export default function Modal({
   };
 
   return (
-    <Dialog 
-      open={open} 
-      onClose={handleClose} 
+    <Dialog
+      open={open}
+      onClose={canClose ? (value: boolean) => handleClose() : () => {}}
       className="relative z-50"
     >
-      <DialogBackdrop 
-        className="fixed inset-0 bg-black/40" 
-        onClick={handleClose}
+      <DialogBackdrop
+        className="fixed inset-0 bg-black/40"
+        onClick={canClose ? handleClose : () => {}}
       />
       <div className="fixed inset-0 flex w-screen items-center justify-center p-4">
-        <DialogPanel className="max-w-lg space-y-4 border border-stroke-weak bg-background p-8 rounded-md">
+        <DialogPanel className="max-w-lg space-y-4 rounded-md border border-stroke-weak bg-background p-8">
+          {hint && hint}
           {title ? (
             <div className="flex justify-between">
-              <h3 className="text-lg text-typography-strong font-bold">
+              <h3 className="text-lg font-bold text-typography-strong">
                 {title}
               </h3>
-              <Button
-                handleClick={handleClose}
-                className="hover:opacity-80 transition-effect"
-                variant="unstyled"
-              >
-                <Cross1Icon />
-              </Button>
+              {canClose && (
+                <Button
+                  handleClick={handleClose}
+                  className="transition-effect hover:opacity-80"
+                  variant="unstyled"
+                >
+                  <Cross1Icon />
+                </Button>
+              )}
             </div>
-          ) : null}  {/* Changed from empty fragment to null */}
+          ) : null}{" "}
           {children}
         </DialogPanel>
       </div>
