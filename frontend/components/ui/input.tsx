@@ -108,7 +108,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger>
-                  <div className="w-4 h-4 p-2.5 bg-stroke-weak rounded-full text-typography-strong flex items-center justify-center">
+                  <div className="flex h-4 w-4 items-center justify-center rounded-full bg-stroke-weak p-2.5 text-typography-strong">
                     <span>
                       <AsteriskIcon width={14} height={14} />
                     </span>
@@ -164,7 +164,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger>
-                    <div className="w-4 h-4 p-2.5 bg-stroke-weak rounded-full text-typography-strong flex items-center justify-center">
+                    <div className="flex h-4 w-4 items-center justify-center rounded-full bg-stroke-weak p-2.5 text-typography-strong">
                       <span>
                         <AsteriskIcon width={14} height={14} />
                       </span>
@@ -178,18 +178,18 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
             )}
           </label>
           {hint && (
-            <span className="hidden md:block text-sm text-typography-weak">
+            <span className="hidden text-sm text-typography-weak md:block">
               {hint}
             </span>
           )}
         </div>
       )}
       <div
-        className={`${disabled ? "opacity-70" : "hover:border-stroke-medium"} bg-fill transition-effect group flex items-center justify-between overflow-hidden rounded-lg border border-stroke-weak bg-app-bg`}
+        className={`${disabled ? "opacity-70" : "hover:border-stroke-medium"} transition-effect bg-app-bg group flex items-center justify-between overflow-hidden rounded-lg border border-stroke-weak bg-fill`}
       >
         <div className="flex w-full">
           {prefix && (
-            <div className="p-3 select-none border-r border-stroke-weak bg-fill p font-medium group-hover:border-stroke-medium">
+            <div className="p select-none border-r border-stroke-weak bg-fill p-3 font-medium group-hover:border-stroke-medium">
               <span className={`${size} font-medium`}>{prefix}</span>
             </div>
           )}
