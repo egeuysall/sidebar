@@ -35,5 +35,7 @@ func main() {
 
 	server := api.NewServer(*listenAddr, store)
 
+	// todo initiate cron tasks
+
 	log.Fatal(server.Start())
 }
