@@ -20,6 +20,10 @@ type UpdateUserEmailRequest struct {
 	Email string `json:"email"`
 }
 
+type DeleteUserRequest struct {
+	Password string `json:"password"`
+}
+
 type ChangeUserPasswordRequest struct {
 	OldPassword        string `json:"old_password"`
 	NewPassword        string `json:"new_password"`
@@ -51,17 +55,21 @@ type User struct {
 	IsAdmin                 bool       `gorm:"default:false" json:"is_admin"`
 	AvatarUrl               string     `gorm:"default:null" json:"avatar_url"`
 	AvatarThumbnailUrl      string     `gorm:"default:null" json:"avatar_thumbnail_url"`
+	DeletedAt               *time.Time `gorm:"default:null" json:"deleted_at"`
+	RestoredAt              *time.Time `gorm:"default:null" json:"restored_at"`
 }
 
 type UserIdentityResponse struct {
-	ID             uuid.UUID `json:"id"`
-	FirstName      string    `json:"first_name"`
-	LastName       string    `json:"last_name"`
-	Email          string    `json:"email"`
-	EmailConfirmed bool      `json:"email_confirmed"`
-	UpdatedEmail   string    `json:"updated_email"`
-	IsAdmin        bool      `json:"is_admin"`
-	AvatarUrl      string    `json:"avatar_url"`
+	ID             uuid.UUID  `json:"id"`
+	FirstName      string     `json:"first_name"`
+	LastName       string     `json:"last_name"`
+	Email          string     `json:"email"`
+	EmailConfirmed bool       `json:"email_confirmed"`
+	UpdatedEmail   string     `json:"updated_email"`
+	IsAdmin        bool       `json:"is_admin"`
+	AvatarUrl      string     `json:"avatar_url"`
+	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+	RestoredAt     *time.Time `json:"restored_at,omitempty"`
 }
 
 func NewUser(req *CreateUserRequest) *User {
@@ -81,6 +89,8 @@ func NewUserIdentityResponse(u *User) *UserIdentityResponse {
 		IsAdmin:        u.IsAdmin,
 		AvatarUrl:      u.AvatarUrl,
 		EmailConfirmed: u.EmailConfirmedAt != nil && *u.EmailConfirmedAt != time.Time{},
+		DeletedAt:      u.DeletedAt,
+		RestoredAt:     u.RestoredAt,
 	}
 }
 
