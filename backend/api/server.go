@@ -5,16 +5,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/go-chi/httprate"
 
 	"github.com/colecaccamise/go-backend/middleware"
 	"github.com/colecaccamise/go-backend/models"
 	"github.com/colecaccamise/go-backend/storage"
 	"github.com/colecaccamise/go-backend/util"
 	"github.com/go-chi/chi"
+	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/h2non/filetype"
@@ -56,9 +60,11 @@ func (s *Server) Start() error {
 	r.NotFound(makeHttpHandleFunc(handleNotFound))
 	r.MethodNotAllowed(makeHttpHandleFunc(handleMethodNotAllowed))
 
-	r.Get("/uuid", makeHttpHandleFunc(func(w http.ResponseWriter, r *http.Request) error {
-		return WriteJSON(w, http.StatusOK, map[string]string{"uuid": uuid.New().String()})
-	}))
+	r.Use(chiMiddleware.Heartbeat("/ping"))
+	r.Use(chiMiddleware.GetHead)
+
+	// todo rate limit based on auth token, browser fingerprint, etc.
+	r.Use(httprate.LimitByIP(100, 1*time.Minute))
 
 	r.Route("/auth", func(r chi.Router) {
 		r.Get("/identity", makeHttpHandleFunc(s.handleIdentity))
@@ -72,14 +78,18 @@ func (s *Server) Start() error {
 		r.Post("/change-password", makeHttpHandleFunc(s.handleChangePassword))
 	})
 
-	r.Route("/tokens", func(r chi.Router) {
-		r.Get("/", makeHttpHandleFunc(s.handleGetAllTokens))
-		// r.Post("/", makeHttpHandleFunc(s.handleCreateToken))
-		// r.Delete("/{id}", makeHttpHandleFunc(s.handleDeleteToken))
+	r.Group(func(r chi.Router) {
+		r.Use(s.VerifyUserNotDeleted)
+		r.Route("/tokens", func(r chi.Router) {
+			r.Get("/", makeHttpHandleFunc(s.handleGetAllTokens))
+			// r.Post("/", makeHttpHandleFunc(s.handleCreateToken))
+			// r.Delete("/{id}", makeHttpHandleFunc(s.handleDeleteToken))
+		})
 	})
 
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.VerifyAuth)
+		r.Use(s.VerifyUserNotDeleted)
 		r.Post("/auth/verify-password", makeHttpHandleFunc(s.handleVerifyPassword))
 	})
 
@@ -101,6 +111,7 @@ func (s *Server) Start() error {
 	// user taking actions on their own account they're logged in to
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.VerifyAuth)
+		r.Use(s.VerifyUserNotDeleted)
 		r.Route("/users", func(r chi.Router) {
 			r.Patch("/", makeHttpHandleFunc(s.handleUpdateUser))
 			r.Delete("/", makeHttpHandleFunc(s.handleDeleteUser))
@@ -110,6 +121,12 @@ func (s *Server) Start() error {
 			r.Delete("/avatar", makeHttpHandleFunc(s.handleDeleteAvatar))
 			r.Patch("/change-password", makeHttpHandleFunc(s.handleChangeUserPassword))
 		})
+	})
+
+	// user actions that can be taken when deleted
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.VerifyAuth)
+		r.Patch("/users/restore", makeHttpHandleFunc(s.handleRestoreUser))
 	})
 
 	stack := middleware.CreateStack(
@@ -141,8 +158,28 @@ func (s *Server) Start() error {
 	return http.ListenAndServe(s.listenAddr, handler)
 }
 
+func (s *Server) VerifyUserNotDeleted(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, _, err := getUserIdentity(s, r)
+		if err != nil {
+			_ = WriteJSON(w, http.StatusUnauthorized, Error{Message: "unauthorized", Error: err.Error()})
+			return
+		}
+
+		if user.DeletedAt != nil {
+			_ = WriteJSON(w, http.StatusForbidden, Error{
+				Error: "This action cannot be completed because your account has been deleted",
+				Code:  "user_deleted",
+			})
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func handleNotFound(w http.ResponseWriter, req *http.Request) error {
-	return WriteJSON(w, http.StatusNotFound, Error{Message: fmt.Sprintf("cannot %s %s", req.Method, req.URL.Path), Error: "refresh not found"})
+	return WriteJSON(w, http.StatusNotFound, Error{Message: fmt.Sprintf("cannot %s %s", req.Method, req.URL.Path), Error: "route not found"})
 }
 
 func handleMethodNotAllowed(w http.ResponseWriter, req *http.Request) error {
@@ -240,7 +277,7 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 
 	token, err := generateToken(userData, "auth")
 	if err != nil {
-		return err
+		return WriteJSON(w, http.StatusInternalServerError, Error{Error: "internal server error", Code: "internal_server_error"})
 	}
 
 	http.SetCookie(w, &http.Cookie{
@@ -471,18 +508,21 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 	// TODO: check that user isnt already logged in
 	loginReq := new(models.LoginRequest)
 	if err := json.NewDecoder(r.Body).Decode(loginReq); err != nil {
-		return err
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request.", Error: "empty body.", Code: "empty_body"})
 	}
 
 	user, err := s.store.GetUserByEmail(loginReq.Email)
 
 	if err != nil {
-		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid credentials", Error: "unauthorized"})
+		// simulate work with random time between 40 and 90ms
+		randomNum := rand.Intn(41) + 50
+		time.Sleep(time.Duration(randomNum) * time.Millisecond)
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid credentials.", Error: "unauthorized"})
 	}
 
 	passwordMatches := comparePasswords(user.HashedPassword, loginReq.Password)
 	if !passwordMatches {
-		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid credentials", Error: "invalid email or password"})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid credentials.", Error: "invalid email or password"})
 	}
 
 	authToken, err := generateToken(user, "auth")
@@ -688,43 +728,168 @@ func (s *Server) handleForgotPassword(w http.ResponseWriter, r *http.Request) er
 	// validate email
 	forgotPasswordRequest := new(models.ForgotPasswordRequest)
 	if err := json.NewDecoder(r.Body).Decode(forgotPasswordRequest); err != nil {
-		return WriteJSON(w, http.StatusBadRequest, Response{Message: "empty body.", Code: "empty_body"})
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "empty body.", Code: "empty_body"})
 	}
 
 	email := forgotPasswordRequest.Email
 
 	if email == "" || !util.ValidateEmail(email) {
-		return WriteJSON(w, http.StatusBadRequest, Response{Message: "a valid email is required.", Code: "email_not_provided"})
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "a valid email is required.", Code: "email_not_provided"})
 	}
 
 	// check if email exists in system
-	emailExists, err := s.store.GetUserByEmail(email)
+	user, err := s.store.GetUserByEmail(email)
 
-	if emailExists == nil {
+	if user == nil {
+		// simulate work with random time between 300 and 700ms
+		randomNum := rand.Intn(401) + 300
+		time.Sleep(time.Duration(randomNum) * time.Millisecond)
 		return WriteJSON(w, http.StatusOK, Response{Message: "password reset link sent.", Code: "password_reset_sent"})
 	}
 
 	if err != nil {
-		return WriteJSON(w, http.StatusOK, Error{Error: "internal server error.", Code: "internal_server_error"})
+		return WriteJSON(w, http.StatusInternalServerError, Error{Error: "internal server error.", Code: "internal_server_error"})
 	}
 
 	// generate forgot password token
+	forgotPasswordToken, err := generateToken(user, "reset_password")
+
+	if err != nil {
+		return WriteJSON(w, http.StatusInternalServerError, Error{Error: "internal server error.", Code: "internal_server_error"})
+	}
 
 	// send email
+	resetPasswordUrl := fmt.Sprintf("%s/auth/change-password?token=%s", os.Getenv("APP_URL"), forgotPasswordToken)
+
+	err = util.SendEmail(user.Email, "Reset your dashboard password", fmt.Sprintf("Click here to reset your password: %s", resetPasswordUrl))
 
 	return WriteJSON(w, http.StatusOK, Response{Message: "password reset link sent.", Code: "password_reset_sent"})
 }
 
 func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) error {
 	// validate token
+	changePasswordRequest := new(models.ChangePasswordRequest)
+	if err := json.NewDecoder(r.Body).Decode(changePasswordRequest); err != nil {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "empty body.", Code: "empty_body"})
+	}
+
+	if changePasswordRequest.Token == "" {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "missing token.", Code: "missing_token"})
+	}
+
+	userId, tokenType, err := util.ParseJWT(changePasswordRequest.Token)
+	if err != nil {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "token is invalid or expired.", Code: "invalid_token"})
+	}
+
+	if tokenType != "reset_password" {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "token is invalid or expired.", Code: "invalid_token"})
+	}
+
+	if userId == "" {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "token is invalid or expired.", Code: "invalid_token"})
+	}
+
+	user, err := s.store.GetUserByID(uuid.MustParse(userId))
+
+	if err != nil {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "token is invalid or expired.", Code: "invalid_token"})
+	}
+
+	if user == nil {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "token is invalid or expired.", Code: "invalid_token"})
+	}
 
 	// validate passwords exists
+	if changePasswordRequest.Password == "" {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "new password is required.", Code: "missing_new_password"})
+	}
+
+	if changePasswordRequest.ConfirmPassword == "" {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "password confirmation is required.", Code: "missing_confirm_password"})
+	}
 
 	// validate passwords match
-
-	// validate password strength
+	if changePasswordRequest.Password != changePasswordRequest.ConfirmPassword {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "new passwords do not match.", Code: "new_password_mismatch"})
+	}
 
 	// validate password is not the same as existing
+	if comparePasswords(user.HashedPassword, changePasswordRequest.Password) {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "new password must be different.", Code: "password_unchanged"})
+	}
+
+	// validate password strength
+	eightOrMore, number, upper, special := util.ValidatePassword(changePasswordRequest.Password)
+
+	var errorMessages []string
+	if !eightOrMore {
+		errorMessages = append(errorMessages, "be at least 8 characters long")
+	}
+	if !number {
+		errorMessages = append(errorMessages, "contain at least one number")
+	}
+	if !upper {
+		errorMessages = append(errorMessages, "contain at least one uppercase letter")
+	}
+	if !special {
+		errorMessages = append(errorMessages, "contain at least one special character")
+	}
+
+	if len(errorMessages) > 0 {
+		errorMessage := "Password must " + strings.Join(errorMessages, ", ")
+		if len(errorMessages) > 1 {
+			lastIndex := len(errorMessages) - 1
+			errorMessage = strings.Join(errorMessages[:lastIndex], ", ") + ", and " + errorMessages[lastIndex]
+			errorMessage = "Password must " + errorMessage
+		}
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: errorMessage, Error: errorMessage, Code: "weak_password"})
+	}
+
+	// hash password
+	hashedPassword, err := hashAndSaltPassword(changePasswordRequest.Password)
+
+	if err != nil {
+		return WriteJSON(w, http.StatusInternalServerError, Error{Error: "internal server error.", Code: "internal_server_error"})
+	}
+
+	user.HashedPassword = hashedPassword
+
+	if err := s.store.UpdateUser(user); err != nil {
+		return WriteJSON(w, http.StatusInternalServerError, Error{Error: "internal server error.", Code: "internal_server_error"})
+	}
+
+	authToken, err := generateToken(user, "auth")
+
+	if err != nil {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "internal server error.", Code: "internal_server_error"})
+	}
+
+	refreshToken, err := generateToken(user, "refresh")
+
+	if err != nil {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "internal server error.", Code: "internal_server_error"})
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth-token",
+		Value:    authToken,
+		Path:     "/",
+		MaxAge:   60 * 15,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh-token",
+		Value:    refreshToken,
+		Path:     "/",
+		MaxAge:   60 * 15,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
 
 	return WriteJSON(w, http.StatusOK, Response{Message: "password changed.", Code: "password_changed"})
 }
@@ -742,7 +907,7 @@ func comparePasswords(hashedPassword, password string) bool {
 }
 
 func generateToken(user *models.User, tokenType string) (string, error) {
-	if tokenType != "auth" && tokenType != "refresh" && tokenType != "reset_password" && tokenType != "forgot_password" && tokenType != "email_confirmation" && tokenType != "email_resend" && tokenType != "reset_email" && tokenType != "email_update_confirmation" {
+	if tokenType != "auth" && tokenType != "refresh" && tokenType != "reset_password" && tokenType != "email_confirmation" && tokenType != "email_resend" && tokenType != "reset_email" && tokenType != "email_update_confirmation" {
 		return "", fmt.Errorf("invalid token type")
 	}
 
@@ -999,16 +1164,109 @@ func (s *Server) handleResendUpdateEmail(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) error {
+	deleteUserReq := new(models.DeleteUserRequest)
+	if err := json.NewDecoder(r.Body).Decode(deleteUserReq); err != nil {
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: "empty body.", Code: "empty_body"})
+	}
+
+	password := deleteUserReq.Password
+
+	if password == "" {
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: "password is required.", Code: "missing_password"})
+	}
+
 	user, _, err := getUserIdentity(s, r)
 	if err != nil {
 		return err
 	}
 
-	if err := s.store.DeleteUserByID(user.ID); err != nil {
-		return WriteJSON(w, http.StatusInternalServerError, Error{Message: "failed to delete user", Error: err.Error()})
+	if user.DeletedAt != nil {
+		if !comparePasswords(user.HashedPassword, password) {
+			return WriteJSON(w, http.StatusBadRequest, Error{Error: "password is incorrect.", Code: "invalid_password"})
+		}
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     "auth-token",
+			Value:    "",
+			Path:     "/",
+			Expires:  time.Unix(0, 0),
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+		})
+		http.SetCookie(w, &http.Cookie{
+			Name:     "refresh-token",
+			Value:    "",
+			Path:     "/",
+			Expires:  time.Unix(0, 0),
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+		})
+
+		return WriteJSON(w, http.StatusNoContent, nil)
+	} else {
+		if !comparePasswords(user.HashedPassword, password) {
+			return WriteJSON(w, http.StatusBadRequest, Error{Error: "password is incorrect.", Code: "invalid_password"})
+		}
+
+		// Send warning email
+		err = util.SendEmail(user.Email, "SECURITY NOTICE: Account Deletion Initiated", "Your account has been deleted. If this was not you, please contact support immediately. After 90 days, this data will no longer be recoverable.")
+		if err != nil {
+			fmt.Printf("Error sending deletion email: %v\n", err)
+			return err
+		}
+
+		now := time.Now()
+		user.DeletedAt = &now
+
+		if err := s.store.UpdateUser(user); err != nil {
+			return WriteJSON(w, http.StatusInternalServerError, Error{Error: "internal server error.", Code: "internal_server_error"})
+		}
+
+		// todo set up cron task that watches out for outstanding account deletion requests
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     "auth-token",
+			Value:    "",
+			Path:     "/",
+			Expires:  time.Unix(0, 0),
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+		})
+		http.SetCookie(w, &http.Cookie{
+			Name:     "refresh-token",
+			Value:    "",
+			Path:     "/",
+			Expires:  time.Unix(0, 0),
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+		})
+
+		return WriteJSON(w, http.StatusNoContent, nil)
+	}
+}
+
+func (s *Server) handleRestoreUser(w http.ResponseWriter, r *http.Request) error {
+	user, _, err := getUserIdentity(s, r)
+	if err != nil {
+		return WriteJSON(w, http.StatusUnauthorized, Error{Error: "token is invalid or expired", Code: "invalid_token"})
 	}
 
-	return WriteJSON(w, http.StatusNoContent, nil)
+	if user.DeletedAt == nil {
+		return WriteJSON(w, http.StatusBadRequest, Error{Error: "cannot restore user", Code: "user_not_deleted"})
+	}
+
+	user.DeletedAt = nil
+
+	now := time.Now()
+	user.RestoredAt = &now
+
+	if err := s.store.UpdateUser(user); err != nil {
+		return WriteJSON(w, http.StatusInternalServerError, Error{Error: "internal server error", Code: "internal_server_error"})
+	}
+
+	userData := models.NewUserIdentityResponse(user)
+
+	return WriteJSON(w, http.StatusOK, Response{Message: "user restored", Code: "user_restored", Data: map[string]models.UserIdentityResponse{"user": *userData}})
 }
 
 func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) error {
@@ -1026,7 +1284,6 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) erro
 	if err != nil {
 		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: err.Error()})
 	}
-
 	fileType, err := filetype.MatchReader(bytes.NewReader(buf))
 	if err != nil {
 		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: err.Error()})
@@ -1222,7 +1479,13 @@ func (s *Server) handleChangeUserPassword(w http.ResponseWriter, r *http.Request
 	}
 
 	if len(errorMessages) > 0 {
-		return WriteJSON(w, http.StatusBadRequest, Error{Error: strings.Join(errorMessages, ","), Code: "weak_password"})
+		errorMessage := "Password must " + strings.Join(errorMessages, ", ")
+		if len(errorMessages) > 1 {
+			lastIndex := len(errorMessages) - 1
+			errorMessage = strings.Join(errorMessages[:lastIndex], ", ") + ", and " + errorMessages[lastIndex]
+			errorMessage = "Password must " + errorMessage
+		}
+		return WriteJSON(w, http.StatusBadRequest, Error{Message: "invalid request", Error: errorMessage})
 	}
 
 	hashedPassword, err := hashAndSaltPassword(changePasswordReq.NewPassword)
