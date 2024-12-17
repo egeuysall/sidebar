@@ -1,28 +1,31 @@
-"use client";
+'use client';
 
-import Header from "@/components/ui/header";
-import Dropdown from "@/components/ui/dropdown";
-import { ExitIcon, GearIcon } from "@radix-ui/react-icons";
-import { handleLogout, handleRestoreUser } from "./actions";
-import axios from "axios";
-import Modal from "@/components/ui/modal";
-import { useEffect, useState } from "react";
-import { getResponseMessage } from "@/messages";
-import Button from "@/components/ui/button";
-import { getErrorMessage } from "@/messages";
-import toast from "@/lib/toast";
+import Header from '@/components/ui/header';
+import Dropdown from '@/components/ui/dropdown';
+import { ExitIcon, GearIcon } from '@radix-ui/react-icons';
+import { handleLogout, handleRestoreUser } from './actions';
+import axios from 'axios';
+import Modal from '@/components/ui/modal';
+import { useEffect, useState } from 'react';
+import { getResponseMessage } from '@/messages';
+import Button from '@/components/ui/button';
+import { getErrorMessage } from '@/messages';
+import toast from '@/lib/toast';
+import { useRouter } from 'next/navigation';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+
   const menuItems = [
     {
-      id: "settings",
-      label: "Settings",
+      id: 'settings',
+      label: 'Settings',
       icon: <GearIcon />,
-      href: "/settings/account",
+      href: '/settings/account',
     },
     {
-      id: "logout",
-      label: "Logout",
+      id: 'logout',
+      label: 'Logout',
       icon: <ExitIcon />,
       handleClick: async () => {
         await handleLogout();
@@ -41,8 +44,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       })
       .then((res: any) => {
         setUser(res.data);
-        console.log(res.data.deleted_at);
         setAccountDeleted(Boolean(res.data?.deleted_at));
+      })
+      .catch((err: any) => {
+        if (err.response.data.code === 'session_expired') {
+          toast({
+            message: getErrorMessage('session_expired'),
+            mode: 'error',
+          });
+
+          router.push('/auth/login');
+        }
       });
   }, []);
 
@@ -56,14 +68,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           console.log(resp?.code);
           toast({
             message: getErrorMessage(resp.code),
-            mode: "error",
+            mode: 'error',
           });
         } else {
           setUser(resp?.data?.user);
           setAccountDeleted(Boolean(res.data?.deleted_at));
           toast({
-            message: getResponseMessage("user_restored"),
-            mode: "success",
+            message: getResponseMessage('user_restored'),
+            mode: 'success',
           });
         }
       })
@@ -71,12 +83,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         if (err.code) {
           toast({
             message: getErrorMessage(err.code),
-            mode: "error",
+            mode: 'error',
           });
         } else {
           toast({
-            message: getErrorMessage("internal_server_error"),
-            mode: "error",
+            message: getErrorMessage('internal_server_error'),
+            mode: 'error',
           });
         }
       })
@@ -96,22 +108,22 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         >
           <div className="flex flex-col gap-6 py-2">
             <p>
-              A deletion request was initiated on{" "}
+              A deletion request was initiated on{' '}
               {user?.deleted_at ? (
                 <b>{new Date(user.deleted_at).toLocaleString()}.</b>
               ) : (
-                ""
+                ''
               )}
             </p>
             <p>
               If no further action is taken, your account will be permanently
-              deleted on{" "}
+              deleted on{' '}
               <b>
                 {new Date(
                   user?.deleted_at
                     ? new Date(user.deleted_at).getTime() +
                       30 * 24 * 60 * 60 * 1000
-                    : Date.now()
+                    : Date.now(),
                 ).toLocaleString()}
               </b>
               .
@@ -126,7 +138,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               className="w-full"
               handleClick={handleRestore}
             >
-              {loading ? "Restoring Account..." : "Restore Account"}
+              {loading ? 'Restoring Account...' : 'Restore Account'}
             </Button>
           </div>
         </Modal>

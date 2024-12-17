@@ -1,11 +1,11 @@
-"use client";
+'use client';
 
-import Input from "@/components/ui/input";
-import SettingsBox from "@/components/ui/settings-box";
-import { useState, useEffect, useRef, useCallback } from "react";
-import axios from "axios";
-import { ApiError, ApiResponse, User } from "@/types";
-import Spinner from "@/components/ui/spinner";
+import Input from '@/components/ui/input';
+import SettingsBox from '@/components/ui/settings-box';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import axios from 'axios';
+import { ApiError, ApiResponse, User } from '@/types';
+import Spinner from '@/components/ui/spinner';
 import {
   resendUpdateEmailConfirmation,
   updateUser,
@@ -14,16 +14,17 @@ import {
   uploadAvatar,
   deleteAvatar,
   changePassword,
-} from "./actions";
-import Button from "@/components/ui/button";
-import toast from "@/lib/toast";
-import Modal from "@/components/ui/modal";
-import AvatarUploader from "@/components/ui/avatar-uploader";
-import Link from "next/link";
-import { isValidPassword } from "@/lib/validation";
-import { useSearchParams } from "next/navigation";
-import { getErrorMessage, getResponseMessage } from "@/messages";
-import { useRouter } from "next/navigation";
+  deleteSessions,
+} from './actions';
+import Button from '@/components/ui/button';
+import toast from '@/lib/toast';
+import Modal from '@/components/ui/modal';
+import AvatarUploader from '@/components/ui/avatar-uploader';
+import Link from 'next/link';
+import { isValidPassword } from '@/lib/validation';
+import { useSearchParams } from 'next/navigation';
+import { getErrorMessage, getResponseMessage } from '@/messages';
+import { useRouter } from 'next/navigation';
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 
@@ -32,12 +33,13 @@ export default function AccountSettingsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [avatar, setAvatar] = useState<File | undefined>(undefined);
   const [editingEmail, setEditingEmail] = useState(false);
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState('');
   const [passwordVerifyLoading, setPasswordVerifyLoading] = useState(false);
   const [canUpdateEmail, setCanUpdateEmail] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deletePassword, setDeletePassword] = useState("");
+  const [deletePassword, setDeletePassword] = useState('');
   const emailForm = useRef<HTMLFormElement>(null);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   const [userValues, setUserValues] = useState<{
     firstName?: { initial: string; current: string };
@@ -47,12 +49,12 @@ export default function AccountSettingsPage() {
     avatar?: { initial: string; current: string };
   }>({});
 
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmedNewPassword, setConfirmedNewPassword] = useState("");
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmedNewPassword, setConfirmedNewPassword] = useState('');
 
   const searchParams = useSearchParams();
-  const message = searchParams.get("message");
+  const message = searchParams.get('message');
 
   const router = useRouter();
 
@@ -67,20 +69,20 @@ export default function AccountSettingsPage() {
       .catch((error) => console.error(error));
 
     setUser({
-      id: user.id,
-      firstName: user.first_name,
-      lastName: user.last_name,
-      email: user.email,
-      avatarUrl: user.avatar_url,
-      isAdmin: user.is_admin,
+      id: user?.id,
+      firstName: user?.first_name,
+      lastName: user?.last_name,
+      email: user?.email,
+      avatarUrl: user?.avatar_url,
+      isAdmin: user?.is_admin,
     });
 
     setUserValues({
-      firstName: { initial: user.first_name, current: user.first_name },
-      lastName: { initial: user.last_name, current: user.last_name },
-      email: { initial: user.email, current: user.email },
-      updatedEmail: user.updated_email,
-      avatar: { initial: user.avatar_url, current: user.avatar_url },
+      firstName: { initial: user?.first_name, current: user?.first_name },
+      lastName: { initial: user?.last_name, current: user?.last_name },
+      email: { initial: user?.email, current: user?.email },
+      updatedEmail: user?.updated_email,
+      avatar: { initial: user?.avatar_url, current: user?.avatar_url },
     });
   }, []);
 
@@ -96,8 +98,8 @@ export default function AccountSettingsPage() {
       setUserValues((prev) => ({
         ...prev,
         email: {
-          initial: prev.email?.initial || "",
-          current: prev.email?.initial || "",
+          initial: prev.email?.initial || '',
+          current: prev.email?.initial || '',
         },
       }));
     }
@@ -107,13 +109,13 @@ export default function AccountSettingsPage() {
     if (message) {
       toast({
         message: getResponseMessage(message),
-        mode: "success",
+        mode: 'success',
       });
 
       // Remove message query param
       const url = new URL(window.location.href);
-      url.searchParams.delete("message");
-      window.history.replaceState({}, "", url);
+      url.searchParams.delete('message');
+      window.history.replaceState({}, '', url);
     }
   }, [message]);
 
@@ -121,7 +123,7 @@ export default function AccountSettingsPage() {
     try {
       const res = await updateUserEmail({
         user,
-        email: userValues.email?.current || "",
+        email: userValues.email?.current || '',
       }).then((res) => res);
 
       console.log(res);
@@ -130,14 +132,14 @@ export default function AccountSettingsPage() {
         setUserValues((prev) => ({
           ...prev,
           email: {
-            initial: prev.email?.initial || "",
-            current: prev.email?.initial || "",
+            initial: prev.email?.initial || '',
+            current: prev.email?.initial || '',
           },
         }));
 
         toast({
-          message: getErrorMessage(res.code) || "Something went wrong",
-          mode: "error",
+          message: getErrorMessage(res.code) || 'Something went wrong',
+          mode: 'error',
         });
         return;
       }
@@ -146,24 +148,24 @@ export default function AccountSettingsPage() {
 
       setUserValues((prev) => ({
         ...prev,
-        updatedEmail: res.data.updated_email || "",
+        updatedEmail: res.data.updated_email || '',
         email: {
-          initial: res.data.email || "",
-          current: res.data.email || "",
+          initial: res.data.email || '',
+          current: res.data.email || '',
         },
       }));
 
       toast({
-        message: "Email updated",
-        description: "Please check your email for a confirmation link.",
-        mode: "success",
+        message: 'Email updated',
+        description: 'Please check your email for a confirmation link.',
+        mode: 'success',
       });
     } catch (error) {
-      console.error("Error updating email:", error);
+      console.error('Error updating email:', error);
       setCanUpdateEmail(false);
       toast({
-        message: "Something went wrong",
-        mode: "error",
+        message: 'Something went wrong',
+        mode: 'error',
       });
     }
   }
@@ -186,18 +188,18 @@ export default function AccountSettingsPage() {
           setUserValues((prev) => ({
             ...prev,
             firstName: {
-              initial: prev.firstName?.current || "",
-              current: prev.firstName?.current || "",
+              initial: prev.firstName?.current || '',
+              current: prev.firstName?.current || '',
             },
             lastName: {
-              initial: prev.lastName?.current || "",
-              current: prev.lastName?.current || "",
+              initial: prev.lastName?.current || '',
+              current: prev.lastName?.current || '',
             },
           }));
 
           toast({
-            message: "Profile updated",
-            mode: "success",
+            message: 'Profile updated',
+            mode: 'success',
           });
         }}
         disabled={
@@ -214,7 +216,7 @@ export default function AccountSettingsPage() {
               setUserValues((prev) => ({
                 ...prev,
                 firstName: {
-                  initial: prev.firstName?.initial || "",
+                  initial: prev.firstName?.initial || '',
                   current: e.target.value,
                 },
               }))
@@ -228,7 +230,7 @@ export default function AccountSettingsPage() {
               setUserValues((prev) => ({
                 ...prev,
                 lastName: {
-                  initial: prev.lastName?.initial || "",
+                  initial: prev.lastName?.initial || '',
                   current: e.target.value,
                 },
               }))
@@ -255,8 +257,8 @@ export default function AccountSettingsPage() {
           userValues.updatedEmail &&
           userValues.email?.initial !== userValues.updatedEmail ? (
             <span className="text-sm">
-              To update your email, click the confirmation link we sent to{" "}
-              <strong>{userValues.updatedEmail}</strong>.{" "}
+              To update your email, click the confirmation link we sent to{' '}
+              <strong>{userValues.updatedEmail}</strong>.{' '}
               <Button
                 className="underline"
                 variant="link"
@@ -264,10 +266,10 @@ export default function AccountSettingsPage() {
                   resendUpdateEmailConfirmation({ user }).then((res: any) => {
                     console.log(res);
                     toast({
-                      message: "Email sent",
+                      message: 'Email sent',
                       description:
-                        "Please check your email for a confirmation link.",
-                      mode: "success",
+                        'Please check your email for a confirmation link.',
+                      mode: 'success',
                     });
                   })
                 }
@@ -276,7 +278,7 @@ export default function AccountSettingsPage() {
               </Button>
             </span>
           ) : (
-            "You will need to confirm your email if you change it."
+            "Email changes require verification. You'll be logged out of all devices after confirming."
           )
         }
         disabled={
@@ -290,7 +292,7 @@ export default function AccountSettingsPage() {
           setOpen={setEditingEmail}
           onClose={() => {
             setEditingEmail(false);
-            setPassword("");
+            setPassword('');
           }}
         >
           <p className="text-sm">
@@ -304,27 +306,27 @@ export default function AccountSettingsPage() {
 
               try {
                 const res = await verifyPassword({
-                  password: password || "",
+                  password: password || '',
                 });
 
                 if (res.error) {
-                  setPassword("");
-                  toast({ message: "Invalid password", mode: "error" });
+                  setPassword('');
+                  toast({ message: 'Invalid password', mode: 'error' });
                   setCanUpdateEmail(false);
                   return;
                 }
 
                 setEditingEmail(false);
-                setPassword("");
+                setPassword('');
                 setCanUpdateEmail(true);
 
                 await updateEmail();
               } catch (error) {
                 console.log(error);
-                setPassword("");
+                setPassword('');
                 toast({
-                  message: "An error occurred verifying your password",
-                  mode: "error",
+                  message: 'An error occurred verifying your password',
+                  mode: 'error',
                 });
               } finally {
                 setPasswordVerifyLoading(false);
@@ -355,7 +357,7 @@ export default function AccountSettingsPage() {
             setUserValues((prev) => ({
               ...prev,
               email: {
-                initial: prev.email?.initial || "",
+                initial: prev.email?.initial || '',
                 current: e.target.value,
               },
             }))
@@ -364,14 +366,15 @@ export default function AccountSettingsPage() {
       </SettingsBox>
       <SettingsBox
         title="Change Password"
-        description="You must enter your current password to change your password."
+        description="Passwords must be 8+ characters with at least one uppercase,
+                lowercase, number, and symbol characters."
         onSettingSubmit={async () => {
           if (currentPassword == newPassword) {
             // validate not the same
             toast({
               message:
-                "New password cannot be the same as the current password.",
-              mode: "error",
+                'New password cannot be the same as the current password.',
+              mode: 'error',
             });
             return;
           }
@@ -379,8 +382,8 @@ export default function AccountSettingsPage() {
           // validate password strength
           if (newPassword.length < 8) {
             toast({
-              message: "Password must be at least 8 characters.",
-              mode: "error",
+              message: 'Password must be at least 8 characters.',
+              mode: 'error',
             });
             return;
           }
@@ -388,16 +391,16 @@ export default function AccountSettingsPage() {
           if (!isValidPassword(newPassword)) {
             toast({
               message:
-                "Password must be at least 8 characters with at least one uppercase, lowercase, number, and symbol characters.",
-              mode: "error",
+                'Password must be at least 8 characters with at least one uppercase, lowercase, number, and symbol characters.',
+              mode: 'error',
             });
             return;
           }
 
           if (newPassword !== confirmedNewPassword) {
             toast({
-              message: "Passwords do not match.",
-              mode: "error",
+              message: 'Passwords do not match.',
+              mode: 'error',
             });
             return;
           }
@@ -413,25 +416,28 @@ export default function AccountSettingsPage() {
 
             if (res.error) {
               toast({
-                message: getErrorMessage(res.code) || "Cannot update password",
-                mode: "error",
+                message: getErrorMessage(res.code) || 'Cannot update password',
+                mode: 'error',
               });
               return;
             }
 
             toast({
-              message: "Password updated successfully",
-              mode: "success",
+              message:
+                'Password updated successfully. You will now be securely logged out.',
+              mode: 'success',
             });
 
-            setCurrentPassword("");
-            setNewPassword("");
-            setConfirmedNewPassword("");
+            router.push('/auth/login');
+
+            setCurrentPassword('');
+            setNewPassword('');
+            setConfirmedNewPassword('');
           } catch (err) {
-            console.error("Error changing password:", err);
+            console.error('Error changing password:', err);
             toast({
-              message: "An error occurred while updating password",
-              mode: "error",
+              message: 'An error occurred while updating password',
+              mode: 'error',
             });
           }
         }}
@@ -439,11 +445,11 @@ export default function AccountSettingsPage() {
           <>
             <p>
               <span>
-                Passwords must be 8+ characters with at least one uppercase,
-                lowercase, number, and symbol characters.
+                For security purposes, password changes will log you out of all
+                devices.
               </span>
               <span>
-                {" "}
+                {' '}
                 <Link href="/auth/forgot-password">Forgot Password?</Link>
               </span>
             </p>
@@ -479,13 +485,13 @@ export default function AccountSettingsPage() {
         description="This is your avatar in the dashboard."
         onSettingSubmit={async () => {
           const formData = new FormData();
-          formData.append("avatar", avatar || "");
+          formData.append('avatar', avatar || '');
           await uploadAvatar({ user, formData })
             .then((res) => {
               console.log(res);
               toast({
-                message: "Avatar updated.",
-                mode: "success",
+                message: 'Avatar updated.',
+                mode: 'success',
               });
               setUserValues((prev) => ({
                 ...prev,
@@ -499,8 +505,8 @@ export default function AccountSettingsPage() {
               console.error(error);
               toast({
                 message:
-                  "There was a problem updating your avatar. Please try again.",
-                mode: "error",
+                  'There was a problem updating your avatar. Please try again.',
+                mode: 'error',
               });
             });
         }}
@@ -516,50 +522,110 @@ export default function AccountSettingsPage() {
               setUserValues((prev) => ({
                 ...prev,
                 avatar: {
-                  initial: prev.avatar?.initial || "",
+                  initial: prev.avatar?.initial || '',
                   current: URL.createObjectURL(e),
                 },
               }));
             }}
-            initialAvatar={userValues.avatar?.initial || ""}
+            initialAvatar={userValues.avatar?.initial || ''}
             handleDelete={async () => {
               if (userValues.avatar?.initial) {
                 await deleteAvatar()
                   .then((res) => {
                     if (res == null) {
-                      toast({ message: "Avatar deleted.", mode: "success" });
+                      toast({ message: 'Avatar deleted.', mode: 'success' });
 
                       setUserValues((prev) => ({
                         ...prev,
                         avatar: {
-                          initial: "",
-                          current: "",
+                          initial: '',
+                          current: '',
                         },
                       }));
                     } else {
                       toast({
-                        message: "There was a problem deleting your avatar.",
-                        mode: "error",
+                        message: 'There was a problem deleting your avatar.',
+                        mode: 'error',
                       });
                     }
                   })
                   .catch((err) => {
                     toast({
-                      message: "There was a problem deleting your avatar.",
-                      mode: "error",
+                      message: 'There was a problem deleting your avatar.',
+                      mode: 'error',
                     });
                   });
               } else {
                 setUserValues((prev) => ({
                   ...prev,
                   avatar: {
-                    initial: "",
-                    current: "",
+                    initial: '',
+                    current: '',
                   },
                 }));
               }
             }}
           />
+        </div>
+      </SettingsBox>
+      <SettingsBox
+        title="Session Management"
+        description="Manage your active sessions and devices."
+        note=""
+        onSettingSubmit={async () => {}}
+        disabled={false}
+        showSubmitButton={false}
+      >
+        <Modal
+          title="Log out of all devices"
+          open={showLogoutModal}
+          setOpen={setShowLogoutModal}
+          onClose={() => {}}
+          canClose={true}
+          showCloseButton={false}
+        >
+          <div className="flex flex-col items-start justify-between gap-4">
+            <p>Are you sure you want to log out of all devices?</p>
+
+            <div className="flex w-full justify-end gap-4 pt-4">
+              <Button
+                variant="unstyled"
+                className="btn btn-secondary bg-gray text-typography-strong"
+                handleClick={() => setShowLogoutModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                handleClick={async () => {
+                  await deleteSessions().then((res) => {
+                    setShowLogoutModal(false);
+
+                    console.log(res);
+
+                    toast({
+                      message: 'Logged out of all devices.',
+                      mode: 'success',
+                    });
+
+                    router.push('/auth/login');
+                  });
+                }}
+              >
+                Log out
+              </Button>
+            </div>
+          </div>
+        </Modal>
+        <div className="flex items-center justify-between gap-4 py-4">
+          <p>Log out of all devices</p>
+          <Button
+            handleClick={async () => {
+              setShowLogoutModal(true);
+            }}
+          >
+            Log out
+          </Button>
         </div>
       </SettingsBox>
       <SettingsBox
@@ -595,15 +661,15 @@ export default function AccountSettingsPage() {
                 })
                 .then((res) => {
                   toast({
-                    message: "Account deleted.",
-                    mode: "success",
+                    message: 'Account deleted.',
+                    mode: 'success',
                   });
-                  router.push("/auth/login");
+                  router.push('/auth/login');
                 })
                 .catch((err) => {
                   toast({
                     message: getErrorMessage(err.response.data.code),
-                    mode: "error",
+                    mode: 'error',
                   });
                 });
             }}

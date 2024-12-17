@@ -26,8 +26,25 @@ export default function LoginPage() {
           'The confirmation link was invalid or has expired. Please login to request a new one.',
         mode: 'error',
       });
+      router.replace('/auth/login');
+    } else if (error === 'session_expired') {
+      toast({
+        message: getErrorMessage('session_expired'),
+        mode: 'error',
+      });
+      router.replace('/auth/login');
     }
-  }, [searchParams]);
+
+    const message = searchParams.get('message');
+    if (message === 'email_updated') {
+      toast({
+        message:
+          'Email updated successfully. You have been securely logged out of all devices.',
+        mode: 'success',
+      });
+      router.replace('/auth/login');
+    }
+  }, [searchParams, router]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

@@ -1,6 +1,6 @@
-import { Dialog, DialogPanel, DialogBackdrop } from "@headlessui/react";
-import { Cross1Icon } from "@radix-ui/react-icons";
-import Button from "@/components/ui/button";
+import { Dialog, DialogPanel, DialogBackdrop } from '@headlessui/react';
+import { Cross1Icon } from '@radix-ui/react-icons';
+import Button from '@/components/ui/button';
 
 export default function Modal({
   open = false,
@@ -10,6 +10,7 @@ export default function Modal({
   title,
   hint,
   canClose = true,
+  showCloseButton = true,
 }: {
   open?: boolean;
   setOpen?: (open: boolean) => void;
@@ -18,6 +19,7 @@ export default function Modal({
   title?: string;
   hint?: React.ReactNode;
   canClose?: boolean;
+  showCloseButton?: boolean;
 }) {
   const handleClose = () => {
     onClose();
@@ -42,7 +44,7 @@ export default function Modal({
               <h3 className="text-lg font-bold text-typography-strong">
                 {title}
               </h3>
-              {canClose && (
+              {canClose && showCloseButton && (
                 <Button
                   handleClick={handleClose}
                   className="transition-effect hover:opacity-80"
@@ -52,7 +54,7 @@ export default function Modal({
                 </Button>
               )}
             </div>
-          ) : null}{" "}
+          ) : null}{' '}
           {children}
         </DialogPanel>
       </div>

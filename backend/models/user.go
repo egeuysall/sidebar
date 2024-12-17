@@ -57,6 +57,7 @@ type User struct {
 	AvatarThumbnailUrl      string     `gorm:"default:null" json:"avatar_thumbnail_url"`
 	DeletedAt               *time.Time `gorm:"default:null" json:"deleted_at"`
 	RestoredAt              *time.Time `gorm:"default:null" json:"restored_at"`
+	SecurityVersionChangedAt *time.Time `gorm:"default:null" json:"security_version_changed_at"`
 }
 
 type UserIdentityResponse struct {
@@ -69,7 +70,6 @@ type UserIdentityResponse struct {
 	IsAdmin        bool       `json:"is_admin"`
 	AvatarUrl      string     `json:"avatar_url"`
 	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
-	RestoredAt     *time.Time `json:"restored_at,omitempty"`
 }
 
 func NewUser(req *CreateUserRequest) *User {
@@ -90,7 +90,6 @@ func NewUserIdentityResponse(u *User) *UserIdentityResponse {
 		AvatarUrl:      u.AvatarUrl,
 		EmailConfirmed: u.EmailConfirmedAt != nil && *u.EmailConfirmedAt != time.Time{},
 		DeletedAt:      u.DeletedAt,
-		RestoredAt:     u.RestoredAt,
 	}
 }
 
