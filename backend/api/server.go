@@ -67,8 +67,6 @@ func (s *Server) Start() error {
 	r.Use(httprate.LimitByIP(100, 1*time.Minute))
 
 	r.Route("/auth", func(r chi.Router) {
-		r.Get("/identity", makeHttpHandleFunc(s.handleIdentity))
-		r.Get("/refresh", makeHttpHandleFunc(s.handleRefreshToken))
 		r.Post("/signup", makeHttpHandleFunc(s.handleSignup))
 		r.Post("/resend-email", makeHttpHandleFunc(s.handleResendEmail))
 		r.Post("/login", makeHttpHandleFunc(s.handleLogin))
@@ -76,10 +74,18 @@ func (s *Server) Start() error {
 		r.Post("/confirm", makeHttpHandleFunc(s.handleConfirmEmailToken))
 		r.Post("/forgot-password", makeHttpHandleFunc(s.handleForgotPassword))
 		r.Post("/change-password", makeHttpHandleFunc(s.handleChangePassword))
+		r.Delete("/sessions", makeHttpHandleFunc(s.handleDeleteSessions))
+	})
+
+	r.Group(func(r chi.Router) {
+		r.Use(s.VerifySecurityVersion)
+		r.Get("/auth/identity", makeHttpHandleFunc(s.handleIdentity))
+		r.Get("/auth/refresh", makeHttpHandleFunc(s.handleRefreshToken))
 	})
 
 	r.Group(func(r chi.Router) {
 		r.Use(s.VerifyUserNotDeleted)
+		r.Use(s.VerifySecurityVersion)
 		r.Route("/tokens", func(r chi.Router) {
 			r.Get("/", makeHttpHandleFunc(s.handleGetAllTokens))
 			// r.Post("/", makeHttpHandleFunc(s.handleCreateToken))
@@ -90,6 +96,7 @@ func (s *Server) Start() error {
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.VerifyAuth)
 		r.Use(s.VerifyUserNotDeleted)
+		r.Use(s.VerifySecurityVersion)
 		r.Post("/auth/verify-password", makeHttpHandleFunc(s.handleVerifyPassword))
 	})
 
@@ -112,6 +119,7 @@ func (s *Server) Start() error {
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.VerifyAuth)
 		r.Use(s.VerifyUserNotDeleted)
+		r.Use(s.VerifySecurityVersion)
 		r.Route("/users", func(r chi.Router) {
 			r.Patch("/", makeHttpHandleFunc(s.handleUpdateUser))
 			r.Delete("/", makeHttpHandleFunc(s.handleDeleteUser))
@@ -127,6 +135,14 @@ func (s *Server) Start() error {
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.VerifyAuth)
 		r.Patch("/users/restore", makeHttpHandleFunc(s.handleRestoreUser))
+	})
+
+	// subscription routes
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.VerifyAuth)
+		r.Use(s.VerifyUserNotDeleted)
+		r.Use(s.VerifySecurityVersion)
+		r.Get("/subscriptions", makeHttpHandleFunc(s.handleGetSubscriptions))
 	})
 
 	stack := middleware.CreateStack(
@@ -178,6 +194,109 @@ func (s *Server) VerifyUserNotDeleted(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) VerifySecurityVersion(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, _, err := getUserIdentity(s, r)
+		if err != nil {
+			// proceed to next route (to allow refresh)
+			next.ServeHTTP(w, r)
+		}
+
+		authToken, err := r.Cookie("auth-token")
+		if err != nil {
+			authToken = nil
+		}
+		refreshToken, err := r.Cookie("refresh-token")
+		if err != nil {
+			refreshToken = nil
+		}
+		if authToken != nil {
+			// Parse token to get claims
+			_, _, err = util.ParseJWT(authToken.Value)
+			if err != nil {
+				_ = WriteJSON(w, http.StatusUnauthorized, Error{
+					Error: "session expired. please log in again.",
+					Code:  "session_expired",
+				})
+				return
+			}
+
+			// Get token claims
+			token, err := jwt.Parse(authToken.Value, func(token *jwt.Token) (interface{}, error) {
+				return []byte(os.Getenv("JWT_SECRET")), nil
+			})
+			if err != nil {
+				_ = WriteJSON(w, http.StatusUnauthorized, Error{
+					Error: "session expired. please log in again.",
+					Code:  "session_expired",
+				})
+				return
+			}
+
+			claims := token.Claims.(jwt.MapClaims)
+			tokenSecurityVersion := claims["security_version_changed_at"]
+
+			var refreshTokenSecurityVersion interface{}
+			if refreshToken != nil {
+				refreshTokenParsed, err := jwt.Parse(refreshToken.Value, func(token *jwt.Token) (interface{}, error) {
+					return []byte(os.Getenv("JWT_SECRET")), nil
+				})
+				if err == nil {
+					refreshClaims := refreshTokenParsed.Claims.(jwt.MapClaims)
+					refreshTokenSecurityVersion = refreshClaims["security_version_changed_at"]
+				}
+			}
+
+			if user.SecurityVersionChangedAt != nil {
+				tokenTime, err := time.Parse(time.RFC3339, tokenSecurityVersion.(string))
+				if err != nil {
+					WriteJSON(w, http.StatusUnauthorized, Error{Error: "session expired. please log in again.", Code: "session_expired"})
+					return
+				}
+
+				var refreshTokenTime time.Time
+				if refreshTokenSecurityVersion != nil {
+					refreshTokenTime, err = time.Parse(time.RFC3339, refreshTokenSecurityVersion.(string))
+					if err != nil {
+						WriteJSON(w, http.StatusUnauthorized, Error{Error: "session expired. please log in again.", Code: "session_expired"})
+						return
+					}
+				}
+
+				if tokenTime.Before(*user.SecurityVersionChangedAt) ||
+					(refreshTokenSecurityVersion != nil && refreshTokenTime.Before(*user.SecurityVersionChangedAt)) {
+					http.SetCookie(w, &http.Cookie{
+						Name:     "auth-token",
+						Value:    "",
+						Path:     "/",
+						Expires:  time.Unix(0, 0),
+						Secure:   true,
+						SameSite: http.SameSiteLaxMode,
+					})
+					http.SetCookie(w, &http.Cookie{
+						Name:     "refresh-token",
+						Value:    "",
+						Path:     "/",
+						Expires:  time.Unix(0, 0),
+						Secure:   true,
+						SameSite: http.SameSiteLaxMode,
+					})
+
+					_ = WriteJSON(w, http.StatusUnauthorized, Error{
+						Error: "session expired. please log in again.",
+						Code:  "session_expired",
+					})
+					return
+				}
+			}
+
+		}
+
+		next.ServeHTTP(w, r)
+
+	})
+}
+
 func handleNotFound(w http.ResponseWriter, req *http.Request) error {
 	return WriteJSON(w, http.StatusNotFound, Error{Message: fmt.Sprintf("cannot %s %s", req.Method, req.URL.Path), Error: "route not found"})
 }
@@ -191,74 +310,13 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 	authToken, err := r.Cookie("auth-token")
 
 	if err != nil {
-		// If no auth token, check for refresh token
-		refreshToken, err := r.Cookie("refresh-token")
-		if err != nil {
-			return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user is not authenticated", Error: "no tokens found"})
-		}
-
-		// Parse and check if refresh token is valid
-		userId, tokenType, err := util.ParseJWT(refreshToken.Value)
-		if err != nil || tokenType != "refresh" {
-			return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user is not authenticated", Error: "invalid refresh token"})
-		}
-
-		// If valid, generate auth token and set cookie, then return user
-		user, err := s.store.GetUserByID(uuid.MustParse(userId))
-		if err != nil {
-			http.SetCookie(w, &http.Cookie{
-				Name:     "auth-token",
-				Value:    "",
-				Path:     "/",
-				Expires:  time.Unix(0, 0),
-				Secure:   true,
-				SameSite: http.SameSiteLaxMode,
-			})
-			http.SetCookie(w, &http.Cookie{
-				Name:     "refresh-token",
-				Value:    "",
-				Path:     "/",
-				Expires:  time.Unix(0, 0),
-				Secure:   true,
-				SameSite: http.SameSiteLaxMode,
-			})
-			return WriteJSON(w, http.StatusBadRequest, Error{Message: "user not found", Error: err.Error()})
-		}
-
-		userData := models.NewUserIdentityResponse(user)
-
-		authToken, err := generateToken(user, "auth")
-		if err != nil {
-			return err
-		}
-
-		http.SetCookie(w, &http.Cookie{
-			Name:     "auth-token",
-			Value:    authToken,
-			Path:     "/",
-			MaxAge:   60 * 15,
-			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteLaxMode,
-		})
-
-		return WriteJSON(w, http.StatusOK, userData)
+		return WriteJSON(w, http.StatusUnauthorized, Error{Error: "token is invalid or expired.", Code: "invalid_token"})
 	}
 
 	// Parse auth token
 	userId, tokenType, err := util.ParseJWT(authToken.Value)
 	if err != nil || tokenType != "auth" || userId == "" {
-		// If invalid, check for refresh token
-		refreshToken, err := r.Cookie("refresh-token")
-		if err != nil {
-			return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user is not authenticated", Error: "invalid token"})
-		}
-
-		// Parse and check if refresh token is valid
-		userId, tokenType, err = util.ParseJWT(refreshToken.Value)
-		if err != nil || tokenType != "refresh" {
-			return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user is not authenticated", Error: "invalid token"})
-		}
+		return WriteJSON(w, http.StatusUnauthorized, Error{Error: "token is invalid or expired.", Code: "invalid_token"})
 	}
 
 	// If valid, return user
@@ -272,27 +330,12 @@ func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) error {
 			Secure:   true,
 			SameSite: http.SameSiteLaxMode,
 		})
-		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "user not found", Error: err.Error()})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Error: "token is invalid or expired.", Code: "invalid_token"})
 	}
 
-	token, err := generateToken(userData, "auth")
-	if err != nil {
-		return WriteJSON(w, http.StatusInternalServerError, Error{Error: "internal server error", Code: "internal_server_error"})
-	}
+	userIdentity := models.NewUserIdentityResponse(userData)
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "auth-token",
-		Value:    token,
-		Path:     "/",
-		MaxAge:   60 * 15,
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
-	})
-
-	user := models.NewUserIdentityResponse(userData)
-
-	return WriteJSON(w, http.StatusOK, user)
+	return WriteJSON(w, http.StatusOK, userIdentity)
 }
 
 func (s *Server) handleRefreshToken(w http.ResponseWriter, r *http.Request) error {
@@ -517,12 +560,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 		// simulate work with random time between 40 and 90ms
 		randomNum := rand.Intn(41) + 50
 		time.Sleep(time.Duration(randomNum) * time.Millisecond)
-		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid credentials.", Error: "unauthorized"})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "unauthorized", Error: "invalid credentials.", Code: "invalid_credentials"})
 	}
 
 	passwordMatches := comparePasswords(user.HashedPassword, loginReq.Password)
 	if !passwordMatches {
-		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid credentials.", Error: "invalid email or password"})
+		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "unauthorized", Error: "invalid credentials.", Code: "invalid_credentials"})
 	}
 
 	authToken, err := generateToken(user, "auth")
@@ -625,17 +668,14 @@ func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request)
 		return WriteJSON(w, http.StatusUnauthorized, Error{Message: "invalid token"})
 	}
 
-	authToken, err := generateToken(user, "auth")
-	if err != nil {
-		return err
-	}
-
-	refreshToken, err := generateToken(user, "refresh")
-	if err != nil {
-		return err
-	}
-
+	// update security version
 	now := time.Now()
+
+	user.SecurityVersionChangedAt = &now
+
+	if err := s.store.UpdateUser(user); err != nil {
+		return WriteJSON(w, http.StatusInternalServerError, Error{Error: "internal server error.", Code: "internal_server_error"})
+	}
 
 	// specify redirect url
 	redirectUrl := fmt.Sprintf("%s/dashboard?message=email_confirmed", os.Getenv("APP_URL"))
@@ -648,7 +688,7 @@ func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request)
 		user.Email = user.UpdatedEmail
 		user.UpdatedEmail = ""
 		user.UpdatedEmailConfirmedAt = &now
-		redirectUrl = fmt.Sprintf("%s/settings/account?message=email_updated", os.Getenv("APP_URL"))
+		redirectUrl = fmt.Sprintf("%s/auth/login?message=email_updated", os.Getenv("APP_URL"))
 		successMessage = "email updated successfully."
 		successCode = "email_updated"
 	} else {
@@ -661,9 +701,9 @@ func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth-token",
-		Value:    authToken,
+		Value:    "",
 		Path:     "/",
-		MaxAge:   60 * 15,
+		Expires:  time.Unix(0, 0),
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
@@ -671,9 +711,9 @@ func (s *Server) handleConfirmEmailToken(w http.ResponseWriter, r *http.Request)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh-token",
-		Value:    refreshToken,
+		Value:    "",
 		Path:     "/",
-		MaxAge:   60 * 60 * 24 * 90,
+		Expires:  time.Unix(0, 0),
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
@@ -761,7 +801,8 @@ func (s *Server) handleForgotPassword(w http.ResponseWriter, r *http.Request) er
 	// send email
 	resetPasswordUrl := fmt.Sprintf("%s/auth/change-password?token=%s", os.Getenv("APP_URL"), forgotPasswordToken)
 
-	err = util.SendEmail(user.Email, "Reset your dashboard password", fmt.Sprintf("Click here to reset your password: %s", resetPasswordUrl))
+	// todo warn about error
+	_ = util.SendEmail(user.Email, "Reset your dashboard password", fmt.Sprintf("Click here to reset your password: %s", resetPasswordUrl))
 
 	return WriteJSON(w, http.StatusOK, Response{Message: "password reset link sent.", Code: "password_reset_sent"})
 }
@@ -891,7 +932,53 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) er
 		SameSite: http.SameSiteLaxMode,
 	})
 
+	// update security version
+	now := time.Now()
+
+	user.SecurityVersionChangedAt = &now
+
+	if err := s.store.UpdateUser(user); err != nil {
+		return WriteJSON(w, http.StatusInternalServerError, Error{Error: "internal server error.", Code: "internal_server_error"})
+	}
+
 	return WriteJSON(w, http.StatusOK, Response{Message: "password changed.", Code: "password_changed"})
+}
+
+func (s *Server) handleDeleteSessions(w http.ResponseWriter, r *http.Request) error {
+	now := time.Now()
+
+	user, _, err := getUserIdentity(s, r)
+	if err != nil {
+		return err
+	}
+
+	// update security version
+	user.SecurityVersionChangedAt = &now
+
+	if err := s.store.UpdateUser(user); err != nil {
+		return WriteJSON(w, http.StatusInternalServerError, Error{Error: "internal server error.", Code: "internal_server_error"})
+	}
+
+	// delete cookies
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth-token",
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0),
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh-token",
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0),
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	return WriteJSON(w, http.StatusOK, Response{Message: "logged out of all sessions.", Code: "sessions_deleted"})
 }
 
 func hashAndSaltPassword(password string) (string, error) {
@@ -926,6 +1013,8 @@ func generateToken(user *models.User, tokenType string) (string, error) {
 			return time.Now().Add(time.Minute * 15).Unix()
 		}(),
 		"type": tokenType,
+		// securityVersionChangedAt
+		"security_version_changed_at": user.SecurityVersionChangedAt,
 	}
 
 	authToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -1500,6 +1589,15 @@ func (s *Server) handleChangeUserPassword(w http.ResponseWriter, r *http.Request
 		fmt.Printf("error updating user with new password: %s\n", err)
 
 		return WriteJSON(w, http.StatusInternalServerError, Error{Error: "internal server error.", Code: "server_error"})
+	}
+
+	// update security version
+	now := time.Now()
+
+	user.SecurityVersionChangedAt = &now
+
+	if err := s.store.UpdateUser(user); err != nil {
+		return WriteJSON(w, http.StatusInternalServerError, Error{Error: "internal server error.", Code: "internal_server_error"})
 	}
 
 	return WriteJSON(w, http.StatusOK, Response{Message: "password changed successfully.", Code: "password_changed"})
