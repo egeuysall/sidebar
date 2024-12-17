@@ -24,6 +24,7 @@ import (
 	"github.com/h2non/filetype"
 	"github.com/rs/cors"
 	"github.com/stripe/stripe-go/v80"
+	"github.com/stripe/stripe-go/v80/subscription"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -1630,6 +1631,19 @@ func (s *Server) handleGetAllTokens(w http.ResponseWriter, r *http.Request) erro
 	return WriteJSON(w, http.StatusOK, nil)
 }
 
+func (s *Server) handleGetSubscriptions(w http.ResponseWriter, r *http.Request) error {
+	stripe.Key = "sk_test_51QWzbYATosx6QLQbAPARQD3lnSU4NvBQffCHrtc4KGcOYPnVlsLGvB6tVEfyrWCHVVpPrdiztbpkHhCjHDDLnRYb00NfHC2mH9"
+
+	params := &stripe.SubscriptionParams{}
+	result, err := subscription.Get("sub_1MowQVLkdIwHu7ixeRlqHVzs", params)
+
+	if err != nil {
+		return WriteJSON(w, http.StatusInternalServerError, Error{Error: "internal server error.", Code: "internal_server_error"})
+	}
+
+	return WriteJSON(w, http.StatusOK, nil)
+}
+
 func WriteJSON(w http.ResponseWriter, status int, v any) error {
 	if status == http.StatusNoContent {
 		w.WriteHeader(status)
@@ -1663,7 +1677,7 @@ func WriteJSON(w http.ResponseWriter, status int, v any) error {
 	return json.NewEncoder(w).Encode(v)
 }
 
-// Helper function to check if data is empty
+// helper function to check if data is empty
 func isEmptyData(data interface{}) bool {
 	switch v := data.(type) {
 	case map[string]interface{}:
