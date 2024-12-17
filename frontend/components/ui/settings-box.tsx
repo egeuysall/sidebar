@@ -1,16 +1,17 @@
-import { ForwardedRef, forwardRef, useState } from "react";
-import Button from "@/components/ui/button";
+import { ForwardedRef, forwardRef, useState } from 'react';
+import Button from '@/components/ui/button';
 
 const SettingsBox = forwardRef(function SettingsBox(
   {
-    variant = "default",
-    title = "Your Name",
-    description = "This will be your display name on Dashboard MVP",
+    variant = 'default',
+    title = 'Your Name',
+    description = 'This will be your display name on Dashboard MVP',
     note,
     disabled = true,
     onSettingSubmit,
     children,
-    submitText = "Save Changes",
+    submitText = 'Save Changes',
+    showSubmitButton = true,
   }: {
     variant?: string;
     title?: string;
@@ -20,6 +21,7 @@ const SettingsBox = forwardRef(function SettingsBox(
     onSettingSubmit: () => Promise<void>;
     children?: React.ReactNode;
     submitText?: string;
+    showSubmitButton?: boolean;
   },
   ref: ForwardedRef<HTMLFormElement>,
 ) {
@@ -49,9 +51,9 @@ const SettingsBox = forwardRef(function SettingsBox(
           });
       }}
       className={`flex flex-col border ${
-        variant === "destructive"
-          ? "border-error-stroke-weak"
-          : "border-stroke-weak"
+        variant === 'destructive'
+          ? 'border-error-stroke-weak'
+          : 'border-stroke-weak'
       } w-full max-w-4xl gap-2 rounded-md`}
     >
       <div className="flex flex-col gap-4 px-8 py-6">
@@ -64,21 +66,27 @@ const SettingsBox = forwardRef(function SettingsBox(
 
       <div
         className={`flex items-center justify-between gap-8 rounded-b-md px-8 py-6 ${
-          variant === "destructive"
-            ? "border-t border-error-stroke-weak"
-            : "bg-fill"
+          variant === 'destructive'
+            ? 'border-t border-error-stroke-weak'
+            : 'bg-fill'
         }`}
       >
-        <div className="text-low-contrast-text text-sm">{note}</div>
-
-        <Button
-          variant={variant === "destructive" ? "destructive" : ""}
-          type="submit"
-          disabled={disabled || disableSubmit}
-          loading={disableSubmit}
+        <div
+          className={`text-sm text-typography-weak ${submitText ? 'py-3' : ''}`}
         >
-          {submitText}
-        </Button>
+          {note}
+        </div>
+
+        {showSubmitButton && (
+          <Button
+            variant={variant === 'destructive' ? 'destructive' : ''}
+            type="submit"
+            disabled={disabled || disableSubmit}
+            loading={disableSubmit}
+          >
+            {submitText}
+          </Button>
+        )}
       </div>
     </form>
   );
