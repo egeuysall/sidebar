@@ -5,16 +5,16 @@
 <div align="center">
   <a href="https://github.com/colecaccamise/sidebar/stargazers"><img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/colecaccamise/sidebar"></a>
   <a href="https://github.com/colecaccamise/sidebar/blob/main/LICENSE.md"><img alt="License" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
-
 </div>
 
-## Authors
+> [!NOTE]
+> This project is not currently being maintained. I recommend using this code as inspiration rather than as a starting point for production applications.
 
+## Authors
 <a href="https://github.com/colecaccamise/sidebar/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=colecaccamise/sidebar" />
 </a>
 
 ## License
-
 Licensed under the
 [MIT license](https://github.com/colecaccamise/sidebar/blob/main/LICENSE.md).
